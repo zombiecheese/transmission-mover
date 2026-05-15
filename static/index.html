@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Transmission Mover</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-glow bg-glow-a"></div>
+    <div class="bg-glow bg-glow-b"></div>
+
+    <main class="layout">
+      <header class="hero">
+        <h1>Transmission Mover</h1>
+        <p>Map labels to destinations and auto-move completed torrents.</p>
+        <div class="hero-actions">
+          <button id="runOnceBtn">Run Scan Now</button>
+          <span id="statusChip" class="chip">Idle</span>
+        </div>
+      </header>
+
+      <section class="panel overview-panel">
+        <div class="overview-header">
+          <h2>Torrents</h2>
+          <span id="overviewChip" class="chip"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Progress</th>
+                <th>Label</th>
+                <th>Move to</th>
+                <th>Move status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="overviewTable">
+              <tr><td colspan="6">No connection yet — configure Transmission in Settings.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Live Activity Log</h2>
+        <p class="panel-subtitle">Shows in-flight transfers and recent events from tests, connections, and moves.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Torrent</th>
+                <th>Label</th>
+                <th>Destination</th>
+                <th>Status</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody id="logsTable">
+              <!-- Example row -->
+              <tr>
+                <td>2026-05-15 12:34:56</td>
+                <td>Example Torrent</td>
+                <td>Movies</td>
+                <td>NAS</td>
+                <td>Completed</td>
+                <td>
+                  <div class="log-detail">
+                    <span>Transfer completed successfully.</span>
+                    <button type="button" class="secondary copy-icon-btn" aria-label="Copy log detail" title="Copy log detail" disabled>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h10v10H9z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 5h10v2H7v8H5z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="section-launch-row">
+        <button
+          type="button"
+          id="settingsToggleBtn"
+          class="secondary icon-button"
+          aria-label="Open settings"
+          aria-expanded="false"
+          aria-controls="settingsPanel"
+        >
+          <span class="icon-glyph" aria-hidden="true">&#9881;</span>
+          <span>Settings</span>
+        </button>
+        <button
+          type="button"
+          id="moveRulesToggleBtn"
+          class="secondary icon-button"
+          aria-label="Open move rules"
+          aria-expanded="false"
+          aria-controls="moveRulesPanel"
+        >
+          <span class="icon-glyph" aria-hidden="true">&#8644;</span>
+          <span>Move Rules</span>
+        </button>
+      </div>
+
+      <section id="settingsPanel" class="panel settings-panel hidden">
+        <h2>Settings</h2>
+        <div id="settingsMenu" class="settings-menu" role="tablist" aria-label="Settings sections">
+          <button type="button" class="settings-tab active" data-settings-view="general">General</button>
+          <button type="button" class="settings-tab secondary" data-settings-view="transmission">Transmission</button>
+          <button type="button" class="settings-tab secondary" data-settings-view="security">Security</button>
+        </div>
+
+        <div id="settingsGeneralView" class="settings-view">
+          <h3>General</h3>
+          <form id="generalSettingsForm" class="grid-form">
+            <label class="theme-picker" for="themeMode">
+              Theme
+              <select id="themeMode" aria-label="Theme mode">
+                <option value="auto">Auto</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+
+            <label class="check-label">
+              <input type="checkbox" name="remove_torrent_on_complete" checked />
+              Remove torrent from Transmission after transfer completes
+            </label>
+
+            <fieldset class="settings-fieldset">
+              <legend>Watch Location</legend>
+
+              <label>
+                Source type
+                <select name="watch_source_kind" id="watchSourceKind" required>
+                  <option value="local">Local Docker volume/path</option>
+                  <option value="sftp">Remote SFTP source</option>
+                </select>
+              </label>
+
+              <p id="sourceTypeHint" class="panel-subtitle">Choose local when this container can read the completed files directly, or SFTP when it cannot.</p>
+
+              <label>
+                Base path
+                <input name="watch_base_path" placeholder="/watch or /volume1/downloads/completed" />
+              </label>
+
+              <p class="panel-subtitle">For local watch sources, leave base path blank to use Transmission's reported download directory.</p>
+
+              <div id="watchSourceSftpFields" class="sftp-fields hidden">
+                <label>
+                  Host
+                  <input name="watch_host" placeholder="nas.local" />
+                </label>
+                <label>
+                  Port
+                  <input name="watch_port" type="number" value="22" />
+                </label>
+                <label>
+                  Username
+                  <input name="watch_username" placeholder="mediauser" />
+                </label>
+                <label>
+                  Password
+                  <input name="watch_password" type="password" placeholder="optional" />
+                </label>
+                <label>
+                  Private Key (PEM)
+                  <textarea name="watch_private_key" rows="5" placeholder="optional"></textarea>
+                </label>
+                <label>
+                  Key Passphrase
+                  <input name="watch_key_passphrase" type="password" placeholder="optional" />
+                </label>
+                <div class="row-actions stack-actions">
+                  <button type="button" id="testWatchSourceBtn" class="secondary">Test Connection</button>
+                  <button type="submit" id="watchSourceSaveBtn" disabled>Save General Settings</button>
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset class="settings-fieldset">
+              <legend>Ignored Labels</legend>
+              <p class="panel-subtitle">Torrents carrying any of these labels will be hidden from the overview.</p>
+              <div id="ignoredLabelsList" class="label-chips"></div>
+              <div class="row-inline-actions">
+                <input id="ignoredLabelsInput" list="knownLabels" placeholder="label name" />
+                <button type="button" id="addIgnoredLabelBtn" class="secondary">Add</button>
+              </div>
+            </fieldset>
+
+            <div id="generalSettingsActions" class="row-actions">
+              <button type="submit" id="generalSettingsSubmitBtn">Save General Settings</button>
+            </div>
+          </form>
+        </div>
+
+        <div id="settingsTransmissionView" class="settings-view hidden">
+          <h3>Transmission</h3>
+          <form id="transmissionForm" class="grid-form">
+            <label>
+              RPC URL
+              <input name="rpc_url" placeholder="http://transmission:9091/transmission/rpc" required />
+            </label>
+            <label>
+              Username
+              <input name="username" placeholder="optional" />
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" placeholder="optional" />
+            </label>
+            <label class="check-label">
+              <input name="verify_tls" type="checkbox" checked />
+              Verify TLS certificate
+            </label>
+            <label class="check-label">
+              <input name="transmission_in_container" id="transmissionInContainer" type="checkbox" />
+              Transmission is running in a container
+            </label>
+            <p class="panel-subtitle">If enabled, use either a shared mounted path in Watch Location or Remote SFTP source to access completed data.</p>
+            <div class="row-actions stack-actions">
+              <button type="button" id="testTransmissionBtn" class="secondary">Test Connection</button>
+              <button type="submit" id="transmissionSubmitBtn" disabled>Save</button>
+            </div>
+          </form>
+
+          <form id="remapForm" class="grid-form" style="margin-top:18px">
+            <fieldset class="settings-fieldset">
+              <legend>Container Path Remapping</legend>
+              <p class="panel-subtitle">Enable this when Transmission runs in a separate container and its reported download paths differ from the paths visible here.</p>
+              <label class="check-label">
+                <input type="checkbox" id="remapDownloadPath" name="remap_download_path" />
+                Remap Transmission download paths
+              </label>
+              <div id="remapPathFields" class="hidden">
+                <label>
+                  Transmission reports path starting with
+                  <input name="remap_source_prefix" placeholder="/downloads/complete" />
+                </label>
+                <label>
+                  Replace with (path as seen in this container)
+                  <input name="remap_target_prefix" placeholder="/watch" />
+                </label>
+              </div>
+              <div class="row-actions">
+                <button type="submit">Save Path Remapping</button>
+              </div>
+            </fieldset>
+          </form>
+        </div>
+
+        <div id="settingsSecurityView" class="settings-view hidden">
+          <h3>Security</h3>
+          <form id="changePasswordForm" class="grid-form">
+            <fieldset class="settings-fieldset">
+              <legend>Change Web Authentication Password</legend>
+              <p class="panel-subtitle">Update your web UI login credentials.</p>
+              <label>
+                Current Password
+                <input id="currentPassword" type="password" placeholder="Current password" required />
+              </label>
+              <label>
+                New Password
+                <input id="newPassword" type="password" placeholder="New password (min 8 characters)" required />
+              </label>
+              <label>
+                Confirm New Password
+                <input id="confirmNewPassword" type="password" placeholder="Confirm new password" required />
+              </label>
+              <div class="row-actions">
+                <button type="submit" id="changePasswordBtn">Change Password</button>
+              </div>
+            </fieldset>
+          </form>
+        </div>
+      </section>
+
+      <div id="moveRulesPanel" class="stacked-panels hidden">
+        <section class="panel">
+          <h2>Current Torrents</h2>
+          <p class="panel-subtitle">Loads after a successful connection test. Assign labels to existing torrents here.</p>
+          <div class="row-actions">
+            <button type="button" id="refreshTorrentsBtn" class="secondary">Refresh Torrents</button>
+          </div>
+          <datalist id="knownLabels"></datalist>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th>Labels</th>
+                  <th>Assign Label</th>
+                </tr>
+              </thead>
+              <tbody id="torrentsTable">
+                <tr>
+                  <td colspan="5">Test Transmission connection to load torrents.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Add Destination</h2>
+          <form id="destinationForm" class="grid-form">
+            <label>
+              Name
+              <input name="name" required placeholder="movies-nas" />
+            </label>
+            <label>
+              Type
+              <select name="kind" id="destKind" required>
+                <option value="local">Local</option>
+                <option value="remote">Remote</option>
+              </select>
+            </label>
+            <label>
+              Base Path
+              <input name="base_path" required placeholder="/mnt/media/movies" />
+            </label>
+
+            <div id="sftpFields" class="sftp-fields hidden">
+              <label>
+                Host
+                <input name="host" placeholder="nas.local" />
+              </label>
+              <label>
+                Port
+                <input name="port" type="number" value="22" />
+              </label>
+              <label>
+                Username
+                <input name="username" placeholder="mediauser" />
+              </label>
+              <label>
+                Password
+                <input name="password" type="password" placeholder="optional" />
+              </label>
+              <label>
+                Private Key (PEM)
+                <textarea name="private_key" rows="5" placeholder="optional"></textarea>
+              </label>
+              <label>
+                Key Passphrase
+                <input name="key_passphrase" type="password" placeholder="optional" />
+              </label>
+              <label>
+                Transfer method
+                <select id="destinationTransferMethod" name="transfer_method_preference">
+                  <option value="auto">Auto (use preferred)</option>
+                  <option value="rsync">rsync</option>
+                  <option value="scp">scp</option>
+                  <option value="sftp">sftp</option>
+                </select>
+              </label>
+              <input type="hidden" name="detected_preferred_method" />
+              <input type="hidden" name="detected_sftp_port" />
+              <input type="hidden" name="detected_scp_port" />
+              <input type="hidden" name="detected_rsync_port" />
+              <p id="destinationCapabilityInfo" class="panel-subtitle">Run Test Connection to detect preferred method and service ports.</p>
+            </div>
+
+            <div class="row-actions stack-actions">
+              <button type="button" id="testDestinationBtn" class="secondary">Test Connection</button>
+              <button type="submit" id="destinationSubmitBtn" disabled>Create Destination</button>
+              <button type="button" id="destinationCancelBtn" class="secondary hidden">Cancel</button>
+            </div>
+          </form>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Target</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="destinationsTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Label Rules</h2>
+          <form id="ruleForm" class="inline-form">
+            <select id="ruleLabelSelect" name="label" required>
+              <option value="">-- select label --</option>
+            </select>
+            <select name="destination_id" id="ruleDestinationSelect" required></select>
+            <select name="transfer_mode" id="ruleTransferMode" required>
+              <option value="move">Move data</option>
+              <option value="copy">Copy data</option>
+            </select>
+            <select name="transfer_schedule" id="ruleTransferSchedule" required>
+              <option value="auto">Auto</option>
+              <option value="interval">Interval</option>
+              <option value="manual">Manual</option>
+            </select>
+            <input
+              type="number"
+              min="10"
+              step="1"
+              name="transfer_interval_seconds"
+              id="ruleTransferIntervalSeconds"
+              value="300"
+              placeholder="Interval (seconds)"
+            />
+            <label class="check-label compact">
+              <input type="checkbox" name="enabled" checked />
+              Enabled
+            </label>
+            <button type="submit" id="ruleSubmitBtn">Add Rule</button>
+            <button type="button" id="ruleCancelBtn" class="secondary hidden">Cancel</button>
+          </form>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Destination</th>
+                  <th>Data handling</th>
+                  <th>Schedule</th>
+                  <th>Enabled</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="rulesTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+      </div>
+
+      <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+    </main>
+
+    <div id="warningBanner" class="warning-banner hidden">
+      <p>
+        Remote-to-remote transfers are less efficient. Consider mounting a local disk to the container as the source or destination, depending on where this is running.
+      </p>
+    </div>
+
+    <div id="methodBanner" class="info-banner hidden"></div>
+
+    <script src="/static/app.js?v=20260515-6" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+services:
+  transmission-mover:
+    build: .
+    container_name: transmission-mover
+    ports:
+      - "8080:8080"
+    environment:
+      - POLL_SECONDS=20
+      - DATABASE_URL=sqlite:////data/app.db
+      - LOG_LEVEL=INFO
+      # Optional: Fernet key for encrypting secrets. If not set, one will be auto-generated on first startup
+      # and logged to the container output. For production, set this to the generated key to avoid regeneration.
+      - SECRET_ENCRYPTION_KEY=
+      # Optional: Web auth credentials for UI/API access. Used only on first startup to initialize database credentials.
+      # After first startup, these are ignored; change credentials via POST /api/auth/setup endpoint or update database directly.
+      # If not set and no credentials exist in database, the API will be open until credentials are configured.
+      - WEB_AUTH_USERNAME=
+      - WEB_AUTH_PASSWORD=
+    volumes:
+      - ./data:/data
+      # Web UI files (index.html, app.js, styles.css) mounted for easy live editing/customization.
+      - ./static:/app/static
+      # Mount your Transmission completed/download path(s) here so local moves can access files.
+      - ./watch:/watch
+    restart: unless-stopped

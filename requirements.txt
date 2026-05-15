@@ -1,0 +1,8 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+sqlmodel==0.0.22
+requests==2.32.3
+paramiko==3.5.0
+pydantic-settings==2.6.1
+cryptography==43.0.3
+bcrypt==4.1.3
