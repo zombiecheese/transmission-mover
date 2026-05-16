@@ -15,7 +15,7 @@ from typing import Callable
 import paramiko
 
 from app.models import AppConfig, Destination
-from app.ssh_utils import exec_remote_command, parse_private_key, remote_is_directory
+from app.ssh_utils import connect_ssh_transport, exec_remote_command, parse_private_key, remote_is_directory
 
 
 class InsufficientSpaceError(RuntimeError):
@@ -327,10 +327,17 @@ def _transfer_local_to_remote_via_shell(
         raise FileNotFoundError(f"Source path does not exist: {source}")
 
     # Ensure remote base path exists and has capacity before external transfer command.
-    sftp, transport = _connect_sftp(destination)
+    transport = connect_ssh_transport(
+        host=destination.host,
+        port=int(destination.port or 22),
+        username=destination.username,
+        password=destination.password,
+        private_key=destination.private_key,
+        key_passphrase=destination.key_passphrase,
+    )
     try:
         base_remote = destination.base_path.rstrip("/") or "/"
-        _ensure_remote_dirs(sftp, base_remote)
+        _ensure_remote_dirs_via_shell(transport, base_remote)
         _ensure_remote_free_space(
             transport,
             base_remote,
@@ -338,7 +345,6 @@ def _transfer_local_to_remote_via_shell(
             "remote destination",
         )
     finally:
-        sftp.close()
         transport.close()
 
     ssh_port = int(destination.detected_scp_port or destination.port or 22)
@@ -557,6 +563,29 @@ def _ensure_remote_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
             ) from exc
         except OSError as exc:
             raise RemotePathAccessError(f"Unable to access remote directory '{current}': {exc}") from exc
+
+
+def _ensure_remote_dirs_via_shell(transport: paramiko.Transport, remote_dir: str) -> None:
+    normalized = (remote_dir or "/").strip() or "/"
+    quoted_dir = shlex.quote(normalized)
+
+    mkdir_cmd = f"mkdir -p {quoted_dir}"
+    exit_status, _stdout, stderr = exec_remote_command(transport, mkdir_cmd)
+    if exit_status != 0:
+        detail = (stderr or "").strip() or f"exit code {exit_status}"
+        raise RemotePathAccessError(
+            f"Unable to create remote directory '{normalized}' via SSH shell: {detail}. "
+            "Check destination base path permissions and re-run Destination Test Connection after fixing access."
+        )
+
+    test_cmd = f"test -d {quoted_dir}"
+    exit_status, _stdout, stderr = exec_remote_command(transport, test_cmd)
+    if exit_status != 0:
+        detail = (stderr or "").strip() or f"exit code {exit_status}"
+        raise RemotePathAccessError(
+            f"Remote directory is not accessible as a directory after creation '{normalized}': {detail}. "
+            "Check destination base path permissions and parent path traversal permissions."
+        )
 
 
 def _remove_remote_path(sftp: paramiko.SFTPClient, remote_path: str) -> None:
