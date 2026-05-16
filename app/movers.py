@@ -186,6 +186,32 @@ def _transfer_local_to_remote(
     required_bytes = _get_local_path_size(source)
 
     candidates = _get_remote_method_candidates_with_rule_preference(destination, transfer_method_preference)
+    failed_shell_methods: list[str] = []
+
+    rule_pref = (transfer_method_preference or "auto").lower()
+    dest_pref = (destination.transfer_method_preference or "auto").lower()
+    detected_methods = [
+        item.strip().lower()
+        for item in (destination.detected_methods or "").split(",")
+        if item and item.strip()
+    ]
+    auto_mode = rule_pref == "auto" and dest_pref == "auto"
+
+    if auto_mode:
+        skipped_auto_methods = [m for m in ["rsync", "scp"] if m not in candidates]
+        if skipped_auto_methods:
+            reason = (
+                f"Auto mode skipping {', '.join(skipped_auto_methods)} for '{torrent_name}' "
+                f"because detected destination methods are: {', '.join(detected_methods) or 'none'}"
+            )
+            logger.info(reason)
+            if activity_log_callback:
+                activity_log_callback(reason)
+        else:
+            order_msg = f"Auto mode method order for '{torrent_name}': {', '.join(candidates)}"
+            logger.info(order_msg)
+            if activity_log_callback:
+                activity_log_callback(order_msg)
 
     for method in candidates:
         if method in {"rsync", "scp"}:
@@ -203,12 +229,18 @@ def _transfer_local_to_remote(
                 )
                 return method
             except Exception as exc:
+                failed_shell_methods.append(f"{method}: {exc}")
+                logger.warning("%s transfer failed for '%s': %s", method, torrent_name, exc)
                 if activity_log_callback:
                     activity_log_callback(f"{method} transfer failed for '{torrent_name}': {exc}")
                 # Fall through to next candidate and eventually sftp fallback.
                 continue
 
         if method == "sftp":
+            if failed_shell_methods and activity_log_callback:
+                activity_log_callback(
+                    f"Falling back to sftp for '{torrent_name}' after shell method failures: {'; '.join(failed_shell_methods)}"
+                )
             if activity_log_callback:
                 activity_log_callback(f"Attempting sftp transfer for '{torrent_name}'.")
             _transfer_local_to_sftp(source_path, destination, torrent_name, transfer_mode, progress_callback)

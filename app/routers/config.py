@@ -4,7 +4,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
-from requests import RequestException
+from requests import HTTPError, RequestException
 from sqlmodel import Session
 
 from app import crud
@@ -212,7 +212,13 @@ def test_transmission(payload: TransmissionConfigIn, session: Session = Depends(
     try:
         client.ping()
     except Exception as exc:
-        if isinstance(exc, RequestException):
+        if isinstance(exc, HTTPError) and exc.response is not None and exc.response.status_code == 401:
+            logger.warning("Transmission test unauthorized for %s", payload.rpc_url)
+            detail = (
+                f"Transmission test failed: unauthorized at {payload.rpc_url}. "
+                "Check Transmission username/password."
+            )
+        elif isinstance(exc, RequestException):
             logger.warning("Transmission test failed for %s: %s", payload.rpc_url, exc)
             detail = (
                 f"Transmission test failed: unable to reach RPC endpoint at {payload.rpc_url}. "

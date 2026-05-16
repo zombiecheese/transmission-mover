@@ -446,9 +446,6 @@ export function initEventHandlers() {
         state.testCapabilities.destinationSftp = result;
         applyDestinationCapabilities(result);
         renderDestinationCapabilityInfo(result);
-        if (els.destinationTransferMethod && (!els.destinationTransferMethod.value || els.destinationTransferMethod.value === "auto")) {
-          els.destinationTransferMethod.value = result?.preferred_method || "sftp";
-        }
       }
       updateTestGatedButtons();
       if (isLocal) {

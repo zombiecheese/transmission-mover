@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from requests import RequestException
+from requests import HTTPError, RequestException
 from sqlmodel import Session
 
 from app import crud
@@ -49,7 +49,13 @@ def list_transmission_torrents(
     try:
         torrents = client.get_torrents()
     except Exception as exc:
-        if isinstance(exc, RequestException):
+        if isinstance(exc, HTTPError) and exc.response is not None and exc.response.status_code == 401:
+            logger.warning("Unauthorized when loading torrents from Transmission RPC %s", payload.rpc_url)
+            detail = (
+                f"Unauthorized at Transmission RPC {payload.rpc_url}. "
+                "Check username/password."
+            )
+        elif isinstance(exc, RequestException):
             logger.warning("Failed to load torrents from Transmission RPC %s: %s", payload.rpc_url, exc)
             detail = (
                 f"Failed to reach Transmission RPC at {payload.rpc_url}. "
@@ -80,7 +86,13 @@ def assign_torrent_label(
     try:
         torrent = client.add_label(payload.torrent_id, label)
     except Exception as exc:
-        if isinstance(exc, RequestException):
+        if isinstance(exc, HTTPError) and exc.response is not None and exc.response.status_code == 401:
+            logger.warning("Unauthorized when assigning label through Transmission RPC %s", payload.rpc_url)
+            detail = (
+                f"Unauthorized at Transmission RPC {payload.rpc_url}. "
+                "Check username/password."
+            )
+        elif isinstance(exc, RequestException):
             logger.warning("Failed to assign label through Transmission RPC %s: %s", payload.rpc_url, exc)
             detail = (
                 f"Failed to reach Transmission RPC at {payload.rpc_url}. "
@@ -109,7 +121,13 @@ def remove_torrent_label(
     try:
         torrent = client.remove_label(payload.torrent_id, label)
     except Exception as exc:
-        if isinstance(exc, RequestException):
+        if isinstance(exc, HTTPError) and exc.response is not None and exc.response.status_code == 401:
+            logger.warning("Unauthorized when removing label through Transmission RPC %s", payload.rpc_url)
+            detail = (
+                f"Unauthorized at Transmission RPC {payload.rpc_url}. "
+                "Check username/password."
+            )
+        elif isinstance(exc, RequestException):
             logger.warning("Failed to remove label through Transmission RPC %s: %s", payload.rpc_url, exc)
             detail = (
                 f"Failed to reach Transmission RPC at {payload.rpc_url}. "
