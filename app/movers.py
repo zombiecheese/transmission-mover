@@ -349,7 +349,7 @@ def _transfer_local_to_remote_via_shell(
 
     ssh_port = int(destination.detected_scp_port or destination.port or 22)
     remote_path = f"{destination.base_path.rstrip('/')}/{torrent_name}"
-    remote_target = f"{destination.username}@{destination.host}:{shlex.quote(remote_path)}"
+    remote_target = f"{destination.username}@{destination.host}:{remote_path}"
 
     key_temp_path: str | None = None
     try:
@@ -598,6 +598,49 @@ def _ensure_remote_dirs_via_shell(transport: paramiko.Transport, remote_dir: str
         )
 
 
+def _ensure_remote_dirs_under_base(
+    sftp: paramiko.SFTPClient,
+    base_remote: str,
+    remote_dir: str,
+) -> None:
+    normalized_base = (base_remote or "/").rstrip("/") or "/"
+    normalized_target = (remote_dir or "/").rstrip("/") or "/"
+
+    if normalized_target == normalized_base:
+        return
+
+    if not normalized_target.startswith(normalized_base + "/"):
+        _ensure_remote_dirs(sftp, normalized_target)
+        return
+
+    suffix = normalized_target[len(normalized_base):].lstrip("/")
+    if not suffix:
+        return
+
+    current = normalized_base
+    for part in suffix.split("/"):
+        current = posixpath.join(current, part)
+        try:
+            sftp.stat(current)
+        except FileNotFoundError:
+            try:
+                sftp.mkdir(current)
+            except PermissionError as exc:
+                raise RemotePathAccessError(
+                    f"Unable to create remote directory '{current}'. The SSH account cannot write to this path. "
+                    "Check destination base path permissions and re-run Destination Test Connection after fixing access."
+                ) from exc
+            except OSError as exc:
+                raise RemotePathAccessError(f"Unable to create remote directory '{current}': {exc}") from exc
+        except PermissionError as exc:
+            raise RemotePathAccessError(
+                f"Unable to access remote directory '{current}'. The SSH account cannot traverse or inspect this path. "
+                "Check destination base path permissions and re-run Destination Test Connection after fixing access."
+            ) from exc
+        except OSError as exc:
+            raise RemotePathAccessError(f"Unable to access remote directory '{current}': {exc}") from exc
+
+
 def _remove_remote_path(sftp: paramiko.SFTPClient, remote_path: str) -> None:
     try:
         entries = sftp.listdir_attr(remote_path)
@@ -617,11 +660,12 @@ def _remove_remote_path(sftp: paramiko.SFTPClient, remote_path: str) -> None:
 def _upload_dir(
     sftp: paramiko.SFTPClient,
     local_dir: Path,
+    base_remote: str,
     remote_dir: str,
     total_bytes: int,
     progress_callback: ProgressCallback | None = None,
 ) -> None:
-    _ensure_remote_dirs(sftp, remote_dir)
+    _ensure_remote_dirs_under_base(sftp, base_remote, remote_dir)
 
     transferred_bytes = 0
 
@@ -629,9 +673,9 @@ def _upload_dir(
         rel_root = Path(root).relative_to(local_dir)
         remote_root = posixpath.join(remote_dir, str(rel_root).replace("\\", "/")) if rel_root != Path(".") else remote_dir
 
-        _ensure_remote_dirs(sftp, remote_root)
+        _ensure_remote_dirs_under_base(sftp, base_remote, remote_root)
         for d in dirs:
-            _ensure_remote_dirs(sftp, posixpath.join(remote_root, d))
+            _ensure_remote_dirs_under_base(sftp, base_remote, posixpath.join(remote_root, d))
 
         for f in files:
             local_file = Path(root) / f
@@ -659,12 +703,13 @@ def _upload_dir(
 def _upload_file(
     sftp: paramiko.SFTPClient,
     local_file: Path,
+    base_remote: str,
     remote_file: str,
     total_bytes: int,
     progress_callback: ProgressCallback | None = None,
 ) -> None:
     remote_parent = posixpath.dirname(remote_file)
-    _ensure_remote_dirs(sftp, remote_parent)
+    _ensure_remote_dirs_under_base(sftp, base_remote, remote_parent)
 
     uploaded = 0
 
@@ -696,13 +741,14 @@ def _transfer_local_to_sftp(
 
     sftp, transport = _connect_sftp(destination)
     try:
+        _ensure_remote_dirs_via_shell(transport, base_remote)
         _ensure_remote_free_space(transport, base_remote, required_bytes, "remote destination")
         if source.is_dir():
-            _upload_dir(sftp, source, target_remote, required_bytes, progress_callback)
+            _upload_dir(sftp, source, base_remote, target_remote, required_bytes, progress_callback)
             if transfer_mode == "move":
                 shutil.rmtree(source)
         else:
-            _upload_file(sftp, source, target_remote, required_bytes, progress_callback)
+            _upload_file(sftp, source, base_remote, target_remote, required_bytes, progress_callback)
             if transfer_mode == "move":
                 source.unlink()
         if progress_callback:
