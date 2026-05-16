@@ -348,27 +348,37 @@ def _transfer_local_to_remote_via_shell(
         transport.close()
 
     ssh_port = int(destination.detected_scp_port or destination.port or 22)
-    remote_target = f"{destination.username}@{destination.host}:{destination.base_path.rstrip('/')}/{torrent_name}"
+    remote_path = f"{destination.base_path.rstrip('/')}/{torrent_name}"
+    remote_target = f"{destination.username}@{destination.host}:{shlex.quote(remote_path)}"
 
     key_temp_path: str | None = None
     try:
         auth_prefix: list[str] = []
-        ssh_base_opts = ["-p", str(ssh_port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+        ssh_base_opts = ["-p", str(ssh_port), "-o", "StrictHostKeyChecking=no"]
 
-        if destination.private_key:
-            with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as key_file:
-                key_file.write(destination.private_key)
-                key_temp_path = key_file.name
-            os.chmod(key_temp_path, 0o600)
-            ssh_base_opts.extend(["-i", key_temp_path])
-        elif destination.password:
+        if destination.password:
             sshpass = shutil.which("sshpass")
             if not sshpass:
                 raise RuntimeError("password auth for rsync/scp requires sshpass in container")
             auth_prefix = [sshpass, "-p", destination.password]
+            ssh_base_opts.extend([
+                "-o",
+                "PreferredAuthentications=password",
+                "-o",
+                "PubkeyAuthentication=no",
+            ])
+        elif destination.private_key:
+            with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as key_file:
+                key_file.write(destination.private_key)
+                key_temp_path = key_file.name
+            os.chmod(key_temp_path, 0o600)
+            ssh_base_opts.extend(["-i", key_temp_path, "-o", "BatchMode=yes"])
+        else:
+            # Agent/default key auth path should remain non-interactive.
+            ssh_base_opts.extend(["-o", "BatchMode=yes"])
 
         if method == "rsync":
-            rsync_cmd = [tool, "-a", "--human-readable", "--partial", "--inplace", "--info=progress2"]
+            rsync_cmd = [tool, "-a", "--human-readable", "--partial", "--inplace", "--info=progress2", "--protect-args"]
             rsync_cmd.extend(["-e", "ssh " + " ".join(shlex.quote(opt) for opt in ssh_base_opts)])
             if source.is_dir():
                 rsync_cmd.extend([str(source) + "/", remote_target + "/"])
