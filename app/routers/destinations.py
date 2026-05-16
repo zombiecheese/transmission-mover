@@ -49,7 +49,6 @@ def _validate_and_enrich_remote_destination(payload: DestinationIn) -> None:
             transport,
             payload.base_path,
             "destination",
-            attempt_sudo=payload.attempt_sudo,
         )
         if not validation["ok"]:
             failed = next((item for item in validation["checks"] if not item["passed"]), None)
@@ -63,7 +62,6 @@ def _validate_and_enrich_remote_destination(payload: DestinationIn) -> None:
             transport,
             host,
             payload.port,
-            attempt_sudo=payload.attempt_sudo,
         )
         available_methods = caps["available_methods"]
 
@@ -97,6 +95,13 @@ def get_destinations(session: Session = Depends(get_session)) -> list[Destinatio
 def post_destination(payload: DestinationIn, session: Session = Depends(get_session)) -> DestinationSafeOut:
     payload = normalize_destination_payload(payload)
 
+    app_config = crud.get_app_config(session)
+    if payload.kind in {"remote", "sftp"} and app_config and (app_config.watch_source_kind or "").lower() == "ssh":
+        raise HTTPException(
+            status_code=400,
+            detail="Remote-to-remote transfers are not supported. Set source to local before creating a remote destination.",
+        )
+
     if payload.kind == "local":
         _validate_local_destination_path(payload)
     elif payload.kind in {"sftp", "remote"}:
@@ -118,6 +123,13 @@ def put_destination(
     session: Session = Depends(get_session),
 ) -> DestinationSafeOut:
     payload = normalize_destination_payload(payload)
+
+    app_config = crud.get_app_config(session)
+    if payload.kind in {"remote", "sftp"} and app_config and (app_config.watch_source_kind or "").lower() == "ssh":
+        raise HTTPException(
+            status_code=400,
+            detail="Remote-to-remote transfers are not supported. Set source to local before saving a remote destination.",
+        )
 
     if payload.kind == "local":
         _validate_local_destination_path(payload)

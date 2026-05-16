@@ -1,133 +1,118 @@
 # Transmission Mover
 
-Transmission Mover is a FastAPI + web UI service that routes completed Transmission torrents to destinations based on labels.
+Transmission Mover is a FastAPI service with a built-in web UI that routes completed Transmission torrents to one or more destinations based on torrent labels. It is designed for NAS and home-lab workflows where labels determine *where* completed data lands, *how* it is moved, and *what* happens to the torrent in the client afterward.
 
-It is built for NAS/home-lab workflows where labels determine where data goes, how it is transferred, and whether torrents are removed from the client afterward.
+---
 
-## What It Does
+## Capabilities
 
-- Polls Transmission RPC and reads torrent metadata/labels.
-- Matches torrent labels to enabled rules.
-- Moves or copies data according to per-rule options.
-- Supports local and remote SSH watch sources.
-- Supports local and remote SSH destinations.
-- Auto-detects transfer capabilities (`rsync`, `scp`, `sftp`) for source/destination.
-- Shows active transfer progress and method in the UI.
-- Logs all transfer outcomes to SQLite-backed activity logs.
+### Core function
 
-## Current Transfer Behavior
+- Polls the Transmission RPC endpoint and reads torrent metadata and labels.
+- Matches each torrent against enabled label rules.
+- Moves or copies completed torrent data to the rule's destination.
+- Optionally removes the torrent from Transmission after a successful transfer, with optional data trash.
+- Records every transfer outcome and active progress in a SQLite-backed activity log.
 
-### Source/Destination Combinations
+### Source modes
 
-- Local source -> local destination: filesystem move/copy.
-- Local source -> remote destination: tries remote methods (`rsync`/`scp`/`sftp`) based on capabilities and preferences.
-- Remote SSH source -> local destination: direct SFTP download to local destination (no staging).
-- Remote SSH source -> remote destination:
-  1. Try direct source->destination shell transfer (`rsync`/`scp`).
-  2. If that fails, try reverse destination->source pull (`rsync`/`scp`).
-  3. If both fail, fall back to staged transfer via local staging volume and SFTP.
+- **Local source** — completed data is read from a filesystem path visible to this container/host.
+- **Remote SSH source** — completed data is read from a remote host via SFTP, then transferred directly to a local destination.
 
-### Fallback Visibility
+### Destination modes
 
-Fallback reasons are logged with method-level details (missing commands, auth constraints, command failures, stderr). Active transfer telemetry updates method to `staged-sftp` when staged fallback is selected.
+- **Local destination** — filesystem path mounted into this container/host.
+- **Remote SSH destination** — transferred to a remote host using the negotiated method (`rsync`, `scp`, or `sftp`).
 
-## Rule Matching Semantics
+### Topology rule
 
-- Torrents can have multiple labels.
-- Matching uses the first torrent label that has an enabled rule.
-- Only one rule is applied per processed torrent.
+Remote-to-remote transfers are **not supported**. At least one side of every rule must be local. The UI and API enforce this constraint.
 
-## Scheduling Semantics
+### Transfer method negotiation
 
-- Worker poll cadence is controlled by `POLL_SECONDS`.
-- Rules support `auto`, `interval`, and `manual` schedule modes.
-- The UI button **Run All Now** triggers an immediate one-time cycle and bypasses schedule timing gates for that run.
+For remote endpoints, the app probes the remote host during the **Test Connection** step and stores the detected capabilities:
 
-## Security Model
+- Available methods (`rsync`, `scp`, `sftp`)
+- Preferred method
+- Detected ports for SFTP / SCP / rsync
 
-- Secrets are encrypted at rest (Fernet) in SQLite.
-- Web auth uses a login form and cookie session (`tm_session`), not browser Basic Auth.
-- Credentials can be initialized from `WEB_AUTH_USERNAME` and `WEB_AUTH_PASSWORD` on first startup only.
-- If credentials are not configured, API/UI are open until auth is set up.
-- Failed login attempts are rate-limited with increasing lockout.
-
-## API Accessibility
-
-The API is not UI-only. External clients (scripts, Postman, automation) can consume it if they can reach the service and authenticate.
-
-## Quick Start (Docker Compose)
-
-```bash
-docker compose up -d --build
-```
-
-Open:
-
-http://localhost:8080
-
-Stop:
-
-```bash
-docker compose down
-```
-
-## Docker Compose Notes
-
-The sample compose mounts:
-
-- `./data:/data` for SQLite DB and generated encryption key file.
-- `./static:/app/static` for live-editable UI assets.
-- `./watch:/watch` as an example local path mount.
-- `/path/to/staging/volume:/staging` for remote-to-remote staging fallback.
-
-Replace `/path/to/staging/volume` with a real writable path on the Docker host.
-
-## Environment Variables
-
-- `APP_NAME` (default: `Transmission Mover`)
-- `POLL_SECONDS` (default: `20`)
-- `DATABASE_URL` (default: `sqlite:///./data/app.db`)
-- `LOG_LEVEL` (default: `INFO`)
-- `SECRET_ENCRYPTION_KEY` (optional; auto-generated and persisted to `/data/.encryption_key` if missing)
-- `WEB_AUTH_USERNAME` (optional; first-start auth bootstrap only)
-- `WEB_AUTH_PASSWORD` (optional; first-start auth bootstrap only)
-- `STAGING_PATH` (default: `/staging`)
-
-## Initial Configuration Flow (UI)
-
-1. Configure Transmission RPC and test connection.
-2. Configure source under **Source**:
-   - local path or remote SSH watch source
-   - optional path remapping if Transmission path differs from container-visible path
-3. Add destinations and run destination test.
-4. Create label rules (destination, mode, schedule, transfer preference, remove/trash behavior).
-5. Use **Run All Now** for an immediate validation run.
-
-## Destination Validation Guarantees
-
-Before save/test succeeds, destination validation checks:
-
-- Local destination exists, is a directory, and writable.
-- Remote destination path exists and is a directory.
-- Remote destination allows file write probes.
-- Remote destination allows subdirectory create/remove probes.
-- Remote transfer method capabilities are detected and stored.
-
-## API Endpoints (Current)
-
-### Health
-
-- `GET /api/health`
+Each destination may pin a preferred transfer method or leave it on `auto`.
 
 ### Authentication
 
+- Cookie-based session login (`tm_session`), not browser Basic Auth.
+- First-startup bootstrap from `WEB_AUTH_USERNAME` / `WEB_AUTH_PASSWORD` environment variables.
+- Subsequent credential changes via `POST /api/auth/setup` or `POST /api/auth/change-password`.
+- Failed-login rate limiting with progressive lockout.
+
+### Secrets handling
+
+- All SSH passwords, private keys, and passphrases are encrypted at rest with Fernet.
+- Encryption key is provided via `SECRET_ENCRYPTION_KEY` or auto-generated and persisted to `/data/.encryption_key` on first launch.
+
+### Path remapping
+
+When Transmission runs in a separate container and reports paths that this app cannot see directly, you can configure a prefix remap:
+
+- Source prefix (as Transmission reports)
+- Target prefix (as visible inside this container)
+
+---
+
+## Operation
+
+### Initial setup flow (UI)
+
+1. **Transmission** — enter RPC domain, optional port, optional path (default `/transmission/rpc`), credentials, and TLS verify. Run **Test Connection**.
+2. **Source** — choose `local` or `remote SSH`. For remote SSH, provide host, port, credentials, and base path; then **Test Connection** to validate and negotiate methods.
+3. **Destinations** — add one or more destinations (local or remote SSH). Each remote destination must pass **Test Connection** before save.
+4. **Rules** — bind a label to a destination, choose transfer mode (`move` / `copy`), schedule (`auto` / `interval` / `manual`), preferred transfer method, removal behavior, and trash behavior.
+5. **Run All Now** (optional) — immediate one-shot cycle that bypasses schedule timing for that run.
+
+### Rule matching semantics
+
+- Torrents may carry multiple labels.
+- The first torrent label that matches an enabled rule wins.
+- Only one rule is applied per torrent per cycle.
+
+### Scheduling semantics
+
+- The background worker runs every `POLL_SECONDS`.
+- `auto` — runs as soon as the worker is due and the torrent is complete.
+- `interval` — minimum gap between attempts per torrent, controlled by `transfer_interval_seconds`.
+- `manual` — never runs automatically; only via **Run All Now** or per-torrent **Transfer Now**.
+
+### Destination validation guarantees
+
+Saving a remote destination requires a fresh successful test that proves:
+
+- Path exists and is a directory.
+- Account can list the directory.
+- Account can write a probe file.
+- Account can create and remove a subdirectory.
+- Capability detection (rsync/scp/sftp/ports) succeeded.
+
+If any of these fail, the test surfaces the specific failure and save is blocked until corrected.
+
+### Activity and logs
+
+- `GET /api/transfers/active` reports current transfers with torrent id/name, destination, mode, method, bytes, speed, percent.
+- `GET /api/logs` returns persisted outcomes with status and message.
+
+---
+
+## API surface
+
+### Health
+- `GET /api/health`
+
+### Auth
 - `POST /api/auth/setup`
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `POST /api/auth/change-password`
 
-### Transmission Config and Tests
-
+### Transmission
 - `GET /api/transmission`
 - `PUT /api/transmission`
 - `POST /api/transmission/test`
@@ -135,74 +120,128 @@ Before save/test succeeds, destination validation checks:
 - `POST /api/transmission/torrents/label`
 - `POST /api/transmission/torrents/label/remove`
 
-### App Settings
-
+### App settings
 - `GET /api/app-settings`
 - `PUT /api/app-settings`
 - `PUT /api/app-settings/transmission-container`
 - `POST /api/sftp/test`
 
 ### Destinations
-
 - `GET /api/destinations`
 - `POST /api/destinations`
 - `PUT /api/destinations/{destination_id}`
 - `DELETE /api/destinations/{destination_id}`
 
 ### Rules
-
 - `GET /api/rules`
 - `POST /api/rules`
 - `PUT /api/rules/{rule_id}`
 - `DELETE /api/rules/{rule_id}`
 
-### Activity and Execution
-
+### Activity
 - `POST /api/run-once`
 - `POST /api/transfer/torrent/{torrent_id}`
 - `GET /api/transfers/active`
 - `GET /api/logs?limit=100`
 
-## Logging and Observability
+The API is consumable by any external client that can reach the service and authenticate.
 
-- Active transfer telemetry exposes:
-  - torrent id/name
-  - destination
-  - mode (`move`/`copy`)
-  - method (for example `rsync`, `scp`, `sftp`, `staged-sftp`)
-  - bytes transferred, speed, percent
-- Persistent transfer logs capture final outcome and message.
-- Remote-to-remote fallback logging now includes concrete reasons for direct and reverse failure before staging fallback.
+---
 
-## Static UI Customization
+## Deployment
 
-UI assets are mounted from `./static` to `/app/static` and can be edited live:
+### Quick start (Docker Compose)
+
+```bash
+docker compose up -d --build
+```
+
+Open: <http://localhost:8080>
+
+Stop:
+
+```bash
+docker compose down
+```
+
+### Container layout
+
+The provided `docker-compose.yml` mounts:
+
+| Host path  | Container path | Purpose |
+|------------|----------------|---------|
+| `./data`   | `/data`        | SQLite database and persistent encryption key. |
+| `./static` | `/app/static`  | Web UI assets (live-editable). |
+| `./watch`  | `/watch`       | Example mount for a local source/destination path. |
+
+Bind any additional host paths that need to be visible as local sources or local destinations.
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_NAME` | `Transmission Mover` | Display name. |
+| `POLL_SECONDS` | `20` | Worker cadence. |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | SQLAlchemy URL. |
+| `LOG_LEVEL` | `INFO` | Python log level. |
+| `SECRET_ENCRYPTION_KEY` | *(auto)* | Fernet key. Auto-generated to `/data/.encryption_key` if unset. |
+| `WEB_AUTH_USERNAME` | *(unset)* | First-startup bootstrap username. |
+| `WEB_AUTH_PASSWORD` | *(unset)* | First-startup bootstrap password. |
+
+If no credentials exist in the database and no bootstrap env vars are set, the API/UI is open until credentials are configured. Always set credentials before exposing the service.
+
+### Running outside Docker
+
+Requirements:
+
+- Python 3.12+
+- `openssh-client` available (rsync/scp need their respective binaries in PATH for those methods to be selectable).
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+### Reverse proxy / TLS
+
+- Keep the service on trusted networks or behind a reverse proxy.
+- When fronted by HTTPS, ensure the proxy forwards standard `X-Forwarded-*` headers so session cookies behave correctly.
+
+### Database notes
+
+- SQLite is suitable for single-instance deployments.
+- PRAGMAs enable WAL and a long busy-timeout to handle concurrent worker/API access.
+
+---
+
+## UI customization
+
+UI assets are served from `/app/static` and bind-mounted from `./static`. Edits to the following take effect on browser reload:
 
 - `static/index.html`
-- `static/app.js`
+- `static/app.js`, `static/actions.js`, `static/render.js`, `static/shared.js`, `static/state.js`, `static/utils.js`
 - `static/styles.css`
 
-## Operational Notes
-
-- Keep this service on trusted networks or behind a reverse proxy.
-- If exposing over HTTPS via proxy, set cookie security/proxy headers appropriately.
-- SQLite is suitable for single-instance deployments. For high write concurrency, expect occasional lock pressure and tune deployment accordingly.
+---
 
 ## Troubleshooting
 
-### “No enabled rules with valid destinations”
+### "No enabled rules with valid destinations"
+No enabled rule currently maps to an existing destination.
 
-- No enabled rule currently maps to an existing destination.
-
-### “No rules are due to run at this time”
-
-- Rules exist, but schedule windows are not currently due.
+### "No rules are due to run at this time"
+Rules exist but no schedule window is currently due. Use **Run All Now** to bypass scheduling for a one-shot cycle.
 
 ### Remote transfer permission failures
+Re-run the destination **Test Connection**. The validator reports the specific probe (list / write / mkdir / traverse) that failed and the remote error message. Adjust remote ownership/permissions or the configured account accordingly.
 
-- Destination user may not have create/write permissions under the configured base path.
-- Re-run destination test; directory create probe failures should be reported before save.
+### Path mismatch (containerized Transmission)
+Enable **Remap Transmission download paths** and configure source/target prefixes so paths reported by Transmission resolve to paths visible inside this container.
 
-### Path mismatch issues (containerized Transmission)
+### Cannot save destination
+Destination save requires a fresh successful **Test Connection** that matches the form's current host/credentials/path signature. Any change to those fields invalidates the test and you must retest before saving.
 
-- Enable path remapping and configure source/target prefixes to map Transmission-reported paths to container-visible paths.
+### Lost encryption key
+If `/data/.encryption_key` is deleted and `SECRET_ENCRYPTION_KEY` is not set, previously stored SSH secrets cannot be decrypted. Re-enter credentials for each SSH source/destination.

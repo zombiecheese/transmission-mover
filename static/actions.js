@@ -7,7 +7,6 @@ import {
 import {
   applyDestinationCapabilities,
   buildTestSignature,
-  checkRemoteToRemoteTransfer,
   getAppSettingsPayloadFromForm,
   getDestinationTestPayloadFromForm,
   getTransmissionPayloadFromForm,
@@ -100,16 +99,12 @@ export async function refreshAppSettings() {
 
   state.appSettings = cfg;
   els.transmissionInContainer.checked = Boolean(cfg.transmission_in_container);
-  els.generalSettingsForm.remove_torrent_on_complete.checked = Boolean(cfg.remove_torrent_on_complete);
   const normalizedWatchSourceKind = cfg.watch_source_kind === "sftp" ? "ssh" : (cfg.watch_source_kind || "local");
   els.watchSourceKind.value = normalizedWatchSourceKind;
   els.generalSettingsForm.watch_base_path.value = cfg.watch_base_path || "";
   els.generalSettingsForm.watch_host.value = cfg.watch_host || "";
   els.generalSettingsForm.watch_port.value = cfg.watch_port || 22;
   els.generalSettingsForm.watch_username.value = cfg.watch_username || "";
-  if (els.generalSettingsForm.watch_attempt_sudo) {
-    els.generalSettingsForm.watch_attempt_sudo.checked = Boolean(cfg.watch_attempt_sudo);
-  }
   setMaskedSecretPlaceholder(els.generalSettingsForm.watch_password, Boolean(cfg.has_watch_password));
   els.generalSettingsForm.watch_private_key.value = "";
   els.generalSettingsForm.watch_key_passphrase.value = "";
@@ -143,7 +138,6 @@ export async function refreshAppSettings() {
   updateSourceTypeHint();
   toggleWatchSourceFields();
   updateTestGatedButtons();
-  checkRemoteToRemoteTransfer();
 }
 
 export async function refreshDestinations() {
@@ -211,9 +205,6 @@ export function resetDestinationForm() {
     els.destinationTransferMethod.value = "auto";
   }
   setMaskedSecretPlaceholder(els.destinationForm?.password, false);
-  if (els.destinationForm?.attempt_sudo) {
-    els.destinationForm.attempt_sudo.checked = false;
-  }
   applyDestinationCapabilities(null);
   renderDestinationCapabilityInfo(null);
   if (els.destinationSubmitBtn) {
@@ -343,6 +334,15 @@ export function initEventHandlers() {
 
     try {
       if (els.watchSourceKind?.value === "ssh") {
+        const hasRemoteDestination = (state.destinations || []).some(
+          (dest) => dest.kind === "remote" || dest.kind === "sftp"
+        );
+        if (hasRemoteDestination) {
+          throw new Error("Remote-to-remote transfers are not supported. Switch source to local or convert remote destinations to local.");
+        }
+      }
+
+      if (els.watchSourceKind?.value === "ssh") {
         const signature = buildTestSignature(getWatchSourceTestPayloadFromForm());
         requireFreshTestOrThrow(
           "watchSourceSftp",
@@ -359,7 +359,6 @@ export function initEventHandlers() {
       updateSourceTypeHint();
       toggleWatchSourceFields();
       updateTestGatedButtons();
-      checkRemoteToRemoteTransfer();
       showMessage("Source settings saved.");
     } catch (err) {
       showMessage(err.message, true);
@@ -382,16 +381,29 @@ export function initEventHandlers() {
         method: "PUT",
         body: JSON.stringify(payload),
       });
-      const appData = await api("/api/app-settings/transmission-container", {
-        method: "PUT",
-        body: JSON.stringify({
-          transmission_in_container: Boolean(els.transmissionInContainer?.checked),
-        }),
-      });
-      state.appSettings = appData;
-      updateSourceTypeHint();
+      let transmissionContainerWarning = null;
+      try {
+        const appData = await api("/api/app-settings/transmission-container", {
+          method: "PUT",
+          body: JSON.stringify({
+            transmission_in_container: Boolean(els.transmissionInContainer?.checked),
+          }),
+        });
+        state.appSettings = appData;
+        updateSourceTypeHint();
+      } catch (secondaryErr) {
+        transmissionContainerWarning = secondaryErr;
+      }
+
       updateTestGatedButtons();
-      showMessage("Transmission settings saved.");
+      if (transmissionContainerWarning) {
+        showMessage(
+          `Transmission details saved, but container mode update failed: ${transmissionContainerWarning.message}`,
+          true
+        );
+      } else {
+        showMessage("Transmission settings saved.");
+      }
     } catch (err) {
       showMessage(err.message, true);
     }
@@ -486,7 +498,11 @@ export function initEventHandlers() {
     ev.preventDefault();
     const payload = formToObject(els.destinationForm);
     payload.port = Number(payload.port || 22);
-    payload.attempt_sudo = Boolean(els.destinationForm.attempt_sudo?.checked);
+
+    if ((state.appSettings?.watch_source_kind || "local") === "ssh" && payload.kind === "remote") {
+      showMessage("Remote-to-remote transfers are not supported. Set source to local or use a local destination.", true);
+      return;
+    }
 
     try {
       const signature = buildTestSignature(getDestinationTestPayloadFromForm());
@@ -621,14 +637,9 @@ export function initEventHandlers() {
         els.destinationForm.host.value = dest.host || "";
         els.destinationForm.port.value = dest.port || 22;
         els.destinationForm.username.value = dest.username || "";
-        if (els.destinationForm.attempt_sudo) {
-          els.destinationForm.attempt_sudo.checked = Boolean(dest.attempt_sudo);
-        }
         setMaskedSecretPlaceholder(els.destinationForm.password, Boolean(dest.has_password));
         els.destinationForm.private_key.value = "";
         els.destinationForm.key_passphrase.value = "";
-      } else if (els.destinationForm.attempt_sudo) {
-        els.destinationForm.attempt_sudo.checked = false;
       }
       if (els.destinationSubmitBtn) els.destinationSubmitBtn.textContent = "Update Destination";
       els.destinationCancelBtn?.classList.remove("hidden");

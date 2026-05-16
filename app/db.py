@@ -68,8 +68,6 @@ def _run_migrations() -> None:
             ("appconfig", "watch_detected_sftp_port", "INTEGER"),
             ("appconfig", "watch_detected_scp_port", "INTEGER"),
             ("appconfig", "watch_detected_rsync_port", "INTEGER"),
-            ("appconfig", "watch_attempt_sudo", "INTEGER DEFAULT 0"),
-            ("destination", "attempt_sudo", "INTEGER DEFAULT 0"),
         ]:
             table, col, defn = column_def
             try:

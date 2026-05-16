@@ -1,6 +1,5 @@
 import { els, state } from "./state.js";
 import { copyToClipboard, escapeHtml, formatBytes, formatUtcDateTime } from "./utils.js";
-import { checkRemoteToRemoteTransfer } from "./shared.js";
 
 function parseMethodList(csv) {
   return String(csv || "")
@@ -47,7 +46,7 @@ export function computeRuleEffectiveMethod(rule, destination) {
   }
 
   if (sourceKind === "ssh" && destinationKind === "local") {
-    return "sftp (source -> local, no staging)";
+    return "sftp (source -> local)";
   }
 
   if (sourceKind === "local" && (destinationKind === "remote" || destinationKind === "sftp")) {
@@ -63,24 +62,7 @@ export function computeRuleEffectiveMethod(rule, destination) {
   }
 
   if (sourceKind === "ssh" && (destinationKind === "remote" || destinationKind === "sftp")) {
-    const sourceMethods = parseMethodList(state.appSettings?.watch_detected_methods || "");
-    const destinationMethods = parseMethodList(destination?.detected_methods || "");
-
-    const sourceSet = new Set(sourceMethods.length ? sourceMethods : ["sftp"]);
-    const destinationSet = new Set(destinationMethods.length ? destinationMethods : ["sftp"]);
-    const directCandidates = ["rsync", "scp", "sftp"].filter((m) => sourceSet.has(m) && destinationSet.has(m));
-
-    if (!directCandidates.length) {
-      return "staged via sftp";
-    }
-
-    const chosen = chooseMethodByPreference(
-      directCandidates,
-      rule?.transfer_method_preference,
-      destination?.transfer_method_preference,
-      destination?.detected_preferred_method
-    );
-    return chosen;
+    return "unsupported";
   }
 
   return "auto";
@@ -168,7 +150,6 @@ export function renderDestinations() {
       `;
     })
     .join("");
-  checkRemoteToRemoteTransfer();
 }
 
 export function renderRules() {
@@ -203,7 +184,6 @@ export function renderRules() {
     })
     .join("");
   updateRuleLabelOptions();
-  checkRemoteToRemoteTransfer();
 }
 
 export function formatTorrentStatus(status) {

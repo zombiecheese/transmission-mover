@@ -24,7 +24,6 @@ class AppConfig(SQLModel, table=True):
     watch_host: Optional[str] = None
     watch_port: int = Field(default=22)
     watch_username: Optional[str] = None
-    watch_attempt_sudo: bool = Field(default=False)
     watch_password: Optional[str] = None
     watch_private_key: Optional[str] = None
     watch_key_passphrase: Optional[str] = None
@@ -48,7 +47,6 @@ class Destination(SQLModel, table=True):
     host: Optional[str] = None
     port: int = Field(default=22)
     username: Optional[str] = None
-    attempt_sudo: bool = Field(default=False)
     password: Optional[str] = None
     private_key: Optional[str] = None
     key_passphrase: Optional[str] = None

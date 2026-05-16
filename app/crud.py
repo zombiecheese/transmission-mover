@@ -8,36 +8,32 @@ from app.secret_crypto import decrypt_secret, encrypt_secret, is_encrypted_secre
 from app.schemas import AppSettingsIn, DestinationIn, LabelRuleIn, TransmissionConfigIn
 
 
-def _detached_copy[T](obj: T) -> T:
-    return obj.model_copy(deep=True)
-
-
 def _decrypt_transmission_config(cfg: Optional[TransmissionConfig]) -> Optional[TransmissionConfig]:
     if not cfg:
         return cfg
-    copy = _detached_copy(cfg)
-    copy.password = decrypt_secret(cfg.password)
-    return copy
+    payload = cfg.model_dump()
+    payload["password"] = decrypt_secret(cfg.password)
+    return TransmissionConfig.model_validate(payload)
 
 
 def _decrypt_app_config(cfg: Optional[AppConfig]) -> Optional[AppConfig]:
     if not cfg:
         return cfg
-    copy = _detached_copy(cfg)
-    copy.watch_password = decrypt_secret(cfg.watch_password)
-    copy.watch_private_key = decrypt_secret(cfg.watch_private_key)
-    copy.watch_key_passphrase = decrypt_secret(cfg.watch_key_passphrase)
-    return copy
+    payload = cfg.model_dump()
+    payload["watch_password"] = decrypt_secret(cfg.watch_password)
+    payload["watch_private_key"] = decrypt_secret(cfg.watch_private_key)
+    payload["watch_key_passphrase"] = decrypt_secret(cfg.watch_key_passphrase)
+    return AppConfig.model_validate(payload)
 
 
 def _decrypt_destination(obj: Optional[Destination]) -> Optional[Destination]:
     if not obj:
         return obj
-    copy = _detached_copy(obj)
-    copy.password = decrypt_secret(obj.password)
-    copy.private_key = decrypt_secret(obj.private_key)
-    copy.key_passphrase = decrypt_secret(obj.key_passphrase)
-    return copy
+    payload = obj.model_dump()
+    payload["password"] = decrypt_secret(obj.password)
+    payload["private_key"] = decrypt_secret(obj.private_key)
+    payload["key_passphrase"] = decrypt_secret(obj.key_passphrase)
+    return Destination.model_validate(payload)
 
 
 def get_transmission_config(session: Session) -> Optional[TransmissionConfig]:

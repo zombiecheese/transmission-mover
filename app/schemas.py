@@ -105,7 +105,6 @@ class AppSettingsIn(BaseModel):
     watch_host: Optional[str] = None
     watch_port: int = 22
     watch_username: Optional[str] = None
-    watch_attempt_sudo: bool = False
     watch_password: Optional[str] = None
     watch_private_key: Optional[str] = None
     watch_key_passphrase: Optional[str] = None
@@ -137,7 +136,6 @@ class AppSettingsSafeOut(BaseModel):
     watch_host: Optional[str] = None
     watch_port: int = 22
     watch_username: Optional[str] = None
-    watch_attempt_sudo: bool = False
     remap_download_path: bool = False
     remap_source_prefix: Optional[str] = None
     remap_target_prefix: Optional[str] = None
@@ -178,7 +176,6 @@ class DestinationIn(BaseModel):
     host: Optional[str] = None
     port: int = 22
     username: Optional[str] = None
-    attempt_sudo: bool = False
     password: Optional[str] = None
     private_key: Optional[str] = None
     key_passphrase: Optional[str] = None
@@ -202,7 +199,6 @@ class DestinationSafeOut(BaseModel):
     host: Optional[str] = None
     port: int = 22
     username: Optional[str] = None
-    attempt_sudo: bool = False
     transfer_method_preference: str = "auto"
     detected_methods: str = ""
     detected_preferred_method: Optional[str] = None
@@ -261,7 +257,6 @@ class SftpTestIn(BaseModel):
     host: str
     port: int = 22
     username: str
-    attempt_sudo: bool = False
     password: Optional[str] = None
     private_key: Optional[str] = None
     key_passphrase: Optional[str] = None

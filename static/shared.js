@@ -201,11 +201,9 @@ export function getAppSettingsPayloadFromForm() {
     ...formToObject(els.generalSettingsForm),
   };
   payload.transmission_in_container = Boolean(els.transmissionInContainer?.checked);
-  payload.remove_torrent_on_complete = els.generalSettingsForm.remove_torrent_on_complete.checked;
   payload.transfer_schedule = payload.transfer_schedule || "auto";
   payload.transfer_interval_seconds = Number(payload.transfer_interval_seconds || 300);
   payload.watch_port = Number(payload.watch_port || 22);
-  payload.watch_attempt_sudo = Boolean(els.generalSettingsForm.watch_attempt_sudo?.checked);
   payload.ignored_labels = state.ignoredLabels.join(",");
   payload.remap_download_path = Boolean(els.remapDownloadPath?.checked);
   payload.remap_source_prefix = els.remapSourcePrefix?.value?.trim() || null;
@@ -236,7 +234,6 @@ export function getWatchSourceTestPayloadFromForm() {
     host: f.watch_host?.value?.trim() || "",
     port: Number(f.watch_port?.value || 22),
     username: f.watch_username?.value?.trim() || "",
-    attempt_sudo: Boolean(f.watch_attempt_sudo?.checked),
     password: f.watch_password?.value || null,
     private_key: f.watch_private_key?.value || null,
     key_passphrase: f.watch_key_passphrase?.value || null,
@@ -251,7 +248,6 @@ export function getDestinationTestPayloadFromForm() {
     host: f.host?.value?.trim() || "",
     port: Number(f.port?.value || 22),
     username: f.username?.value?.trim() || "",
-    attempt_sudo: Boolean(f.attempt_sudo?.checked),
     password: f.password?.value || null,
     private_key: f.private_key?.value || null,
     key_passphrase: f.key_passphrase?.value || null,
@@ -264,7 +260,6 @@ export function buildTestSignature(payload) {
     host: payload.host || "",
     port: Number(payload.port || 0),
     username: payload.username || "",
-    attempt_sudo: payload.attempt_sudo === true,
     password: payload.password || "",
     private_key: payload.private_key || "",
     key_passphrase: payload.key_passphrase || "",
@@ -373,23 +368,5 @@ export function updateTestGatedButtons() {
   }
   if (els.watchSourceSaveBtn) {
     els.watchSourceSaveBtn.disabled = !watchSourceReady;
-  }
-}
-
-export function checkRemoteToRemoteTransfer() {
-  const isRemoteSource = (state.appSettings?.watch_source_kind || "local") === "ssh";
-  const isRemoteDestination = state.destinations.some(
-    (dest) => dest.kind === "remote" || dest.kind === "sftp"
-  );
-
-  const warningBanner = document.getElementById("warningBanner");
-  if (!warningBanner) {
-    return;
-  }
-
-  if (isRemoteSource && isRemoteDestination) {
-    warningBanner.classList.remove("hidden");
-  } else {
-    warningBanner.classList.add("hidden");
   }
 }

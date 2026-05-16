@@ -39,7 +39,6 @@ def normalize_destination_payload(payload: DestinationIn) -> DestinationIn:
     payload.kind = normalize_destination_kind(payload.kind)
     payload.transfer_method_preference = normalize_transfer_method_preference(payload.transfer_method_preference)
     if payload.kind == "local":
-        payload.attempt_sudo = False
         payload.transfer_method_preference = "auto"
         payload.detected_methods = ""
         payload.detected_preferred_method = None
@@ -67,33 +66,8 @@ def validate_rule_payload(session: Session, payload: LabelRuleIn) -> None:
     if not app_config:
         raise HTTPException(status_code=400, detail="Application configuration not found")
     
-    # Check if source is remote and has detected methods
-    source_methods = set()
-    if app_config.watch_source_kind == "ssh" and app_config.watch_detected_methods:
-        source_methods = set(app_config.watch_detected_methods.split(","))
-    
-    # Check if destination is remote and has detected methods
-    dest_methods = set()
-    if destination.kind in {"remote", "sftp"}:
-        if destination.detected_methods:
-            dest_methods = {m.strip().lower() for m in destination.detected_methods.split(",") if m.strip()}
-        elif destination.detected_preferred_method:
-            dest_methods.add(destination.detected_preferred_method.lower())
-    elif destination.kind == "local":
-        # Local destinations support all methods
-        dest_methods = {"local"}
-    
-    # For remote-to-remote, check compatibility
     if app_config.watch_source_kind == "ssh" and destination.kind in {"remote", "sftp"}:
-        # Both are remote, check for common methods
-        if not source_methods or not dest_methods:
-            raise HTTPException(status_code=400, detail="Source and destination transfer methods not detected. Please reconfigure them.")
-        # SFTP should always be available as fallback
-        common_methods = source_methods & dest_methods
-        if not common_methods and "sftp" not in source_methods:
-            raise HTTPException(status_code=400, detail=f"No compatible transfer methods between source and destination. Source: {source_methods}, Destination: {dest_methods}")
-    
-    # For local source to remote destination, SFTP is required
-    if app_config.watch_source_kind == "local" and destination.kind in {"remote", "sftp"}:
-        if not dest_methods:
-            raise HTTPException(status_code=400, detail="Destination transfer methods not detected. Please reconfigure the destination.")
+        raise HTTPException(
+            status_code=400,
+            detail="Remote-to-remote transfers are not supported. Configure either a local source or a local destination.",
+        )

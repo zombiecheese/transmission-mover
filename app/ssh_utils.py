@@ -70,71 +70,57 @@ def exec_remote_command(transport: paramiko.Transport, command: str) -> tuple[in
 
 
 def remote_has_cmd(transport: paramiko.Transport, command_name: str) -> bool:
-    return remote_has_cmd_with_retry(transport, command_name, attempt_sudo=False)
-
-
-def remote_has_cmd_with_retry(transport: paramiko.Transport, command_name: str, attempt_sudo: bool = False) -> bool:
     exit_code, _stdout, _stderr = exec_remote_command(
         transport,
         f"command -v {shlex.quote(command_name)} >/dev/null 2>&1",
     )
-    if exit_code != 0 and attempt_sudo:
-        exit_code, _stdout, _stderr = exec_remote_command(
-            transport,
-            f"sudo -n command -v {shlex.quote(command_name)} >/dev/null 2>&1",
-        )
     return exit_code == 0
 
 
-def exec_remote_sh(transport: paramiko.Transport, script: str, *args: str, attempt_sudo: bool = False) -> tuple[int, str, str]:
+def exec_remote_sh(transport: paramiko.Transport, script: str, *args: str) -> tuple[int, str, str]:
     quoted_args = " ".join(shlex.quote(arg) for arg in args)
     command = f"sh -lc {shlex.quote(script)} sh"
     if quoted_args:
         command = f"{command} {quoted_args}"
-    exit_code, stdout, stderr = exec_remote_command(transport, command)
-    if exit_code != 0 and attempt_sudo:
-        sudo_command = f"sudo -n {command}"
-        return exec_remote_command(transport, sudo_command)
-    return exit_code, stdout, stderr
+    return exec_remote_command(transport, command)
 
 
-def remote_is_directory(transport: paramiko.Transport, path: str, attempt_sudo: bool = False) -> bool:
-    exit_code, _stdout, _stderr = exec_remote_sh(transport, 'test -d "$1"', path, attempt_sudo=attempt_sudo)
+def remote_is_directory(transport: paramiko.Transport, path: str) -> bool:
+    exit_code, _stdout, _stderr = exec_remote_sh(transport, 'test -d "$1"', path)
     return exit_code == 0
 
 
-def remote_can_list_directory(transport: paramiko.Transport, path: str, attempt_sudo: bool = False) -> bool:
+def remote_can_list_directory(transport: paramiko.Transport, path: str) -> bool:
     exit_code, _stdout, _stderr = exec_remote_sh(
         transport,
         'ls -1A "$1" >/dev/null',
         path,
-        attempt_sudo=attempt_sudo,
     )
     return exit_code == 0
 
 
-def remote_can_write_directory(transport: paramiko.Transport, path: str, attempt_sudo: bool = False) -> bool:
+def remote_can_write_directory(transport: paramiko.Transport, path: str) -> bool:
     probe_id = uuid.uuid4().hex
     script = 'probe="$1/.tm_probe_$2.tmp" && : > "$probe" && rm -f "$probe"'
-    exit_code, _stdout, _stderr = exec_remote_sh(transport, script, path, probe_id, attempt_sudo=attempt_sudo)
+    exit_code, _stdout, _stderr = exec_remote_sh(transport, script, path, probe_id)
     return exit_code == 0
 
 
-def remote_can_create_subdirectory(transport: paramiko.Transport, path: str, attempt_sudo: bool = False) -> bool:
+def remote_can_create_subdirectory(transport: paramiko.Transport, path: str) -> bool:
     probe_id = uuid.uuid4().hex
     script = 'probe="$1/.tm_probe_dir_$2" && mkdir "$probe" && rmdir "$probe"'
-    exit_code, _stdout, _stderr = exec_remote_sh(transport, script, path, probe_id, attempt_sudo=attempt_sudo)
+    exit_code, _stdout, _stderr = exec_remote_sh(transport, script, path, probe_id)
     return exit_code == 0
 
 
-def remote_can_traverse_parents(transport: paramiko.Transport, path: str, attempt_sudo: bool = False) -> bool:
+def remote_can_traverse_parents(transport: paramiko.Transport, path: str) -> bool:
     script = r'''p="$1";
 while [ "$p" != "/" ] && [ -n "$p" ]; do
     test -x "$p" || exit 1
     p=$(dirname "$p")
 done
 test -x /'''
-    exit_code, _stdout, _stderr = exec_remote_sh(transport, script, path, attempt_sudo=attempt_sudo)
+    exit_code, _stdout, _stderr = exec_remote_sh(transport, script, path)
     return exit_code == 0
 
 
@@ -169,7 +155,6 @@ def detect_remote_transfer_capabilities(
     transport: paramiko.Transport,
     host: str,
     ssh_port: int,
-    attempt_sudo: bool = False,
 ) -> RemoteTransferCapabilities:
     def _is_tcp_open(target_host: str, target_port: int, timeout: float = 2.0) -> bool:
         try:
@@ -178,8 +163,8 @@ def detect_remote_transfer_capabilities(
         except Exception:
             return False
 
-    has_rsync = remote_has_cmd_with_retry(transport, "rsync", attempt_sudo=attempt_sudo)
-    has_scp = remote_has_cmd_with_retry(transport, "scp", attempt_sudo=attempt_sudo)
+    has_rsync = remote_has_cmd(transport, "rsync")
+    has_scp = remote_has_cmd(transport, "scp")
     has_sftp = remote_has_sftp(transport)
     rsync_daemon_port = 873 if has_rsync and _is_tcp_open(host, 873) else None
 
@@ -211,7 +196,6 @@ def validate_remote_base_path(
     transport: paramiko.Transport,
     path: str,
     role: str,
-    attempt_sudo: bool = False,
 ) -> RemoteValidationResult:
     checks: list[ValidationCheck] = []
 
@@ -226,7 +210,7 @@ def validate_remote_base_path(
             }
         )
 
-    is_dir = remote_is_directory(transport, path, attempt_sudo=attempt_sudo)
+    is_dir = remote_is_directory(transport, path)
     add_check(
         "path_is_directory",
         "Base path exists and is a directory",
@@ -245,7 +229,7 @@ def validate_remote_base_path(
             "message": f"Remote {role} validation failed: base path is not a directory",
         }
 
-    can_traverse = remote_can_traverse_parents(transport, path, attempt_sudo=attempt_sudo)
+    can_traverse = remote_can_traverse_parents(transport, path)
     add_check(
         "parent_traverse",
         "Can traverse parent directories",
@@ -255,7 +239,7 @@ def validate_remote_base_path(
     )
 
     if role == "source":
-        can_list = remote_can_list_directory(transport, path, attempt_sudo=attempt_sudo)
+        can_list = remote_can_list_directory(transport, path)
         add_check(
             "source_list",
             "Can list source directory",
@@ -264,7 +248,7 @@ def validate_remote_base_path(
             None if can_list else "Grant read/list permission on the source directory.",
         )
     else:
-        can_write = remote_can_write_directory(transport, path, attempt_sudo=attempt_sudo)
+        can_write = remote_can_write_directory(transport, path)
         add_check(
             "destination_write",
             "Can create and delete a probe file",
@@ -272,7 +256,7 @@ def validate_remote_base_path(
             f"Write probe in {path}",
             None if can_write else "Grant write permission to the destination base path.",
         )
-        can_mkdir = remote_can_create_subdirectory(transport, path, attempt_sudo=attempt_sudo)
+        can_mkdir = remote_can_create_subdirectory(transport, path)
         add_check(
             "destination_mkdir",
             "Can create and remove a subdirectory",

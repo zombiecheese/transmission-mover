@@ -26,6 +26,17 @@ def process_torrent(
     torrent_name = torrent.get("name", "<unknown>")
     torrent_id = torrent.get("id")
 
+    def _log_activity(message: str, status: str = "info") -> None:
+        create_log(
+            session,
+            torrent_name=torrent_name,
+            torrent_id=torrent_id,
+            label=matched_label if 'matched_label' in locals() else None,
+            destination_name=destination.name if 'destination' in locals() and destination else None,
+            status=status,
+            message=message,
+        )
+
     if not _is_finished(torrent):
         message = "Torrent is not complete yet"
         if log_skip_reasons:
@@ -64,6 +75,7 @@ def process_torrent(
             transfer_method_preference_override=rule.transfer_method_preference,
             progress_callback=progress_callback,
             method_update_callback=method_update_callback,
+            activity_log_callback=_log_activity,
         )
         create_log(
             session,

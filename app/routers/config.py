@@ -42,6 +42,29 @@ def get_app_settings(session: Session = Depends(get_session)) -> AppSettingsSafe
 def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
     validate_app_settings_payload(payload)
 
+    if payload.watch_source_kind == "ssh":
+        has_remote_destination = any(
+            (dest.kind or "").lower() in {"remote", "sftp"}
+            for dest in crud.list_destinations(session)
+        )
+        if has_remote_destination:
+            raise HTTPException(
+                status_code=400,
+                detail="Remote-to-remote transfers are not supported. Switch source to local or convert remote destinations to local.",
+            )
+
+    existing_cfg = crud.get_app_config(session)
+    effective_watch_password = payload.watch_password
+    effective_watch_private_key = payload.watch_private_key
+    effective_watch_key_passphrase = payload.watch_key_passphrase
+    if existing_cfg is not None:
+        if effective_watch_password is None:
+            effective_watch_password = existing_cfg.watch_password
+        if effective_watch_private_key is None:
+            effective_watch_private_key = existing_cfg.watch_private_key
+        if effective_watch_key_passphrase is None:
+            effective_watch_key_passphrase = existing_cfg.watch_key_passphrase
+
     # Auto-discover transfer methods if remote SSH source is configured
     if payload.watch_source_kind == "ssh" and payload.watch_host and payload.watch_username and payload.watch_base_path:
         transport = None
@@ -50,15 +73,14 @@ def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_sess
                 host=payload.watch_host,
                 port=payload.watch_port,
                 username=payload.watch_username,
-                password=payload.watch_password,
-                private_key=payload.watch_private_key,
-                key_passphrase=payload.watch_key_passphrase,
+                password=effective_watch_password,
+                private_key=effective_watch_private_key,
+                key_passphrase=effective_watch_key_passphrase,
             )
             caps = detect_remote_transfer_capabilities(
                 transport,
                 payload.watch_host,
                 payload.watch_port,
-                attempt_sudo=payload.watch_attempt_sudo,
             )
             available_methods = caps["available_methods"]
 
@@ -140,7 +162,6 @@ def test_sftp(payload: SftpTestIn, session: Session = Depends(get_session)) -> d
             transport,
             payload.base_path,
             role,
-            attempt_sudo=payload.attempt_sudo,
         )
         if not validation["ok"]:
             raise HTTPException(status_code=400, detail=validation)
@@ -149,7 +170,6 @@ def test_sftp(payload: SftpTestIn, session: Session = Depends(get_session)) -> d
             transport,
             payload.host,
             payload.port,
-            attempt_sudo=payload.attempt_sudo,
         )
         available_methods = caps["available_methods"]
 

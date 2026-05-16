@@ -316,7 +316,7 @@ class MoveWorker:
             return "local filesystem"
 
         if source_kind == "ssh" and destination_kind == "local":
-            return "sftp (source -> local, no staging)"
+            return "sftp (source -> local)"
 
         if source_kind == "local" and destination_kind in {"remote", "sftp"}:
             destination_methods = set(self._parse_method_csv(destination.detected_methods)) or {"sftp"}
@@ -328,17 +328,7 @@ class MoveWorker:
             )
 
         if source_kind == "ssh" and destination_kind in {"remote", "sftp"}:
-            source_methods = set(self._parse_method_csv(app_config.watch_detected_methods)) or {"sftp"}
-            destination_methods = set(self._parse_method_csv(destination.detected_methods)) or {"sftp"}
-            direct_candidates = {m for m in ["rsync", "scp", "sftp"] if m in source_methods and m in destination_methods}
-            if not direct_candidates:
-                return "staged via sftp"
-            return self._choose_method(
-                direct_candidates,
-                rule.transfer_method_preference,
-                destination.transfer_method_preference,
-                destination.detected_preferred_method,
-            )
+            return "unsupported"
 
         return "auto"
 

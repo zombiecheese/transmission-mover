@@ -16,12 +16,6 @@
     <div class="bg-glow bg-glow-a"></div>
     <div class="bg-glow bg-glow-b"></div>
 
-    <div id="warningBanner" class="warning-banner hidden">
-      <p>
-        Remote-to-remote transfers are less efficient. Consider mounting a local disk to the container as the source or destination, depending on where this is running.
-      </p>
-    </div>
-
     <main class="layout">
       <header class="hero">
         <h1>Transmission Mover</h1>
@@ -111,11 +105,6 @@
         <div id="settingsGeneralView" class="settings-view hidden">
           <h3>Source</h3>
           <form id="generalSettingsForm" class="grid-form">
-            <label class="check-label">
-              <input type="checkbox" name="remove_torrent_on_complete" checked />
-              Remove torrent from Transmission after transfer completes
-            </label>
-
             <fieldset class="settings-fieldset">
               <legend>Watch Location</legend>
 
@@ -161,10 +150,6 @@
                   Key Passphrase
                   <input name="watch_key_passphrase" type="password" placeholder="optional" />
                 </label>
-                <label class="check-label">
-                  <input name="watch_attempt_sudo" type="checkbox" />
-                  Attempt with sudo on failure
-                </label>
                 <div class="row-actions stack-actions">
                   <button type="button" id="testWatchSourceBtn" class="secondary">Test Connection</button>
                   <p id="watchSourceCapabilityInfo" class="panel-subtitle">Run Test Connection to detect source transfer methods.</p>
@@ -183,8 +168,8 @@
           <h3>Transmission</h3>
           <form id="transmissionForm" class="grid-form">
             <label>
-              RPC Domain
-              <input name="rpc_domain" placeholder="http://transmission" required />
+              Transmission IP / Hostname
+              <input name="rpc_domain" placeholder="https://transmission.domain.com" required />
             </label>
             <label>
               RPC Port (optional)
@@ -348,10 +333,6 @@
                 Key Passphrase
                 <input name="key_passphrase" type="password" placeholder="optional" />
               </label>
-              <label class="check-label">
-                <input name="attempt_sudo" type="checkbox" />
-                Attempt with sudo on failure
-              </label>
               <label>
                 Transfer method
                 <select id="destinationTransferMethod" name="transfer_method_preference">
@@ -490,8 +471,6 @@
 
       <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
     </main>
-
-    <div id="methodBanner" class="info-banner hidden"></div>
 
     <script src="/static/app.js?v=20260516-10" type="module"></script>
   </body>

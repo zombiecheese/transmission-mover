@@ -48,6 +48,15 @@ export async function api(path, options = {}) {
       detailPayload = payload.detail;
       if (typeof payload.detail === "string") {
         detail = payload.detail;
+      } else if (Array.isArray(payload.detail)) {
+        const first = payload.detail[0];
+        if (first && typeof first === "object") {
+          const loc = Array.isArray(first.loc) ? first.loc.join(".") : "field";
+          const msg = String(first.msg || "Validation error");
+          detail = `${loc}: ${msg}`;
+        } else {
+          detail = "Validation error";
+        }
       } else if (payload.detail && typeof payload.detail === "object") {
         const checks = Array.isArray(payload.detail.checks) ? payload.detail.checks : [];
         const failed = checks.find((item) => item && item.passed === false);
@@ -63,7 +72,14 @@ export async function api(path, options = {}) {
         }
       }
     } catch {
-      // Ignore invalid payload and use generic detail.
+      try {
+        const text = await response.text();
+        if (text && text.trim()) {
+          detail = text.slice(0, 300);
+        }
+      } catch {
+        // Ignore invalid payload and use generic detail.
+      }
     }
     const err = new Error(detail);
     err.detailPayload = detailPayload;
