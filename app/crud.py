@@ -1,35 +1,43 @@
 from typing import Optional
 
 from sqlmodel import Session, select
+from sqlalchemy import desc
 
 from app.models import AppConfig, AuthAuditLog, Destination, LabelRule, MoveLog, TransmissionConfig, WebAuth
 from app.secret_crypto import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.schemas import AppSettingsIn, DestinationIn, LabelRuleIn, TransmissionConfigIn
 
 
+def _detached_copy[T](obj: T) -> T:
+    return obj.model_copy(deep=True)
+
+
 def _decrypt_transmission_config(cfg: Optional[TransmissionConfig]) -> Optional[TransmissionConfig]:
     if not cfg:
         return cfg
-    cfg.password = decrypt_secret(cfg.password)
-    return cfg
+    copy = _detached_copy(cfg)
+    copy.password = decrypt_secret(cfg.password)
+    return copy
 
 
 def _decrypt_app_config(cfg: Optional[AppConfig]) -> Optional[AppConfig]:
     if not cfg:
         return cfg
-    cfg.watch_password = decrypt_secret(cfg.watch_password)
-    cfg.watch_private_key = decrypt_secret(cfg.watch_private_key)
-    cfg.watch_key_passphrase = decrypt_secret(cfg.watch_key_passphrase)
-    return cfg
+    copy = _detached_copy(cfg)
+    copy.watch_password = decrypt_secret(cfg.watch_password)
+    copy.watch_private_key = decrypt_secret(cfg.watch_private_key)
+    copy.watch_key_passphrase = decrypt_secret(cfg.watch_key_passphrase)
+    return copy
 
 
 def _decrypt_destination(obj: Optional[Destination]) -> Optional[Destination]:
     if not obj:
         return obj
-    obj.password = decrypt_secret(obj.password)
-    obj.private_key = decrypt_secret(obj.private_key)
-    obj.key_passphrase = decrypt_secret(obj.key_passphrase)
-    return obj
+    copy = _detached_copy(obj)
+    copy.password = decrypt_secret(obj.password)
+    copy.private_key = decrypt_secret(obj.private_key)
+    copy.key_passphrase = decrypt_secret(obj.key_passphrase)
+    return copy
 
 
 def get_transmission_config(session: Session) -> Optional[TransmissionConfig]:
@@ -41,7 +49,7 @@ def upsert_transmission_config(session: Session, payload: TransmissionConfigIn) 
     if not cfg:
         cfg = TransmissionConfig(id=1)
 
-    cfg.rpc_url = payload.rpc_url
+    cfg.rpc_url = payload.rpc_url or ""
     cfg.username = payload.username
     if payload.password is not None:
         cfg.password = encrypt_secret(payload.password)
@@ -50,7 +58,10 @@ def upsert_transmission_config(session: Session, payload: TransmissionConfigIn) 
     session.add(cfg)
     session.commit()
     session.refresh(cfg)
-    return _decrypt_transmission_config(cfg)
+    result = _decrypt_transmission_config(cfg)
+    if result is None:
+        raise ValueError("Failed to decrypt transmission config")
+    return result
 
 
 def get_app_config(session: Session) -> Optional[AppConfig]:
@@ -73,15 +84,31 @@ def upsert_app_config(session: Session, payload: AppSettingsIn) -> AppConfig:
     session.add(cfg)
     session.commit()
     session.refresh(cfg)
-    return _decrypt_app_config(cfg)
+    result = _decrypt_app_config(cfg)
+    if result is None:
+        raise ValueError("Failed to decrypt app config")
+    return result
+
+
+def update_transmission_in_container(session: Session, transmission_in_container: bool) -> AppConfig:
+    cfg = session.get(AppConfig, 1)
+    if not cfg:
+        cfg = AppConfig(id=1)
+    cfg.transmission_in_container = bool(transmission_in_container)
+    session.add(cfg)
+    session.commit()
+    session.refresh(cfg)
+    result = _decrypt_app_config(cfg)
+    if result is None:
+        raise ValueError("Failed to decrypt app config")
+    return result
 
 
 def list_destinations(session: Session) -> list[Destination]:
     items = list(session.exec(select(Destination).order_by(Destination.name)))
     return [
-        _decrypt_destination(item)
-        for item in items
-        if item is not None
+        d for d in (_decrypt_destination(item) for item in items)
+        if d is not None
     ]
 
 
@@ -98,11 +125,14 @@ def create_destination(session: Session, payload: DestinationIn) -> Destination:
     session.add(obj)
     session.commit()
     session.refresh(obj)
-    return _decrypt_destination(obj)
+    result = _decrypt_destination(obj)
+    if result is None:
+        raise ValueError("Failed to decrypt destination")
+    return result
 
 
 def update_destination(session: Session, destination_id: int, payload: DestinationIn) -> Optional[Destination]:
-    obj = get_destination(session, destination_id)
+    obj = session.get(Destination, destination_id)
     if not obj:
         return None
 
@@ -121,7 +151,7 @@ def update_destination(session: Session, destination_id: int, payload: Destinati
 
 
 def delete_destination(session: Session, destination_id: int) -> bool:
-    obj = get_destination(session, destination_id)
+    obj = session.get(Destination, destination_id)
     if not obj:
         return False
     session.delete(obj)
@@ -193,7 +223,7 @@ def create_log(
 
 
 def list_logs(session: Session, limit: int = 100) -> list[MoveLog]:
-    stmt = select(MoveLog).order_by(MoveLog.created_at.desc()).limit(limit)
+    stmt = select(MoveLog).order_by(desc(getattr(MoveLog, 'created_at'))).limit(limit)
     return list(session.exec(stmt))
 
 
@@ -259,7 +289,10 @@ def create_or_update_web_auth(session: Session, username_hash: str, password_has
         web_auth = WebAuth(id=1, username_hash=username_hash, password_hash=password_hash)
         session.add(web_auth)
     session.commit()
-    return session.get(WebAuth, 1)
+    result = session.get(WebAuth, 1)
+    if result is None:
+        raise ValueError("WebAuth not found")
+    return result
 
 
 def log_auth_attempt(

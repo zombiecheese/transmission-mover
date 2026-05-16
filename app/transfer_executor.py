@@ -21,6 +21,7 @@ def process_torrent(
     torrent: dict,
     log_skip_reasons: bool,
     progress_callback=None,
+    method_update_callback=None,
 ) -> dict[str, object]:
     torrent_name = torrent.get("name", "<unknown>")
     torrent_id = torrent.get("id")
@@ -60,7 +61,9 @@ def process_torrent(
             destination=destination,
             app_config=app_config,
             transfer_mode_override=rule.transfer_mode,
+            transfer_method_preference_override=rule.transfer_method_preference,
             progress_callback=progress_callback,
+            method_update_callback=method_update_callback,
         )
         create_log(
             session,

@@ -16,12 +16,17 @@
     <div class="bg-glow bg-glow-a"></div>
     <div class="bg-glow bg-glow-b"></div>
 
+    <div id="warningBanner" class="warning-banner hidden">
+      <p>
+        Remote-to-remote transfers are less efficient. Consider mounting a local disk to the container as the source or destination, depending on where this is running.
+      </p>
+    </div>
+
     <main class="layout">
       <header class="hero">
         <h1>Transmission Mover</h1>
         <p>Map labels to destinations and auto-move completed torrents.</p>
         <div class="hero-actions">
-          <button id="runOnceBtn">Run Scan Now</button>
           <span id="statusChip" class="chip">Idle</span>
         </div>
       </header>
@@ -31,6 +36,9 @@
           <h2>Torrents</h2>
           <span id="overviewChip" class="chip"></span>
         </div>
+        <div class="overview-actions">
+          <button id="runOnceBtn" class="secondary overview-run-now-btn">Run All Now</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -39,7 +47,7 @@
                 <th>Progress</th>
                 <th>Label</th>
                 <th>Move to</th>
-                <th>Move status</th>
+                <th>Status</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -50,44 +58,26 @@
         </div>
       </section>
 
-      <section class="panel">
-        <h2>Live Activity Log</h2>
-        <p class="panel-subtitle">Shows in-flight transfers and recent events from tests, connections, and moves.</p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time (UTC)</th>
-                <th>Torrent</th>
-                <th>Label</th>
-                <th>Destination</th>
-                <th>Status</th>
-                <th>Detail</th>
-              </tr>
-            </thead>
-            <tbody id="logsTable">
-              <!-- Example row -->
-              <tr>
-                <td>2026-05-15 12:34:56</td>
-                <td>Example Torrent</td>
-                <td>Movies</td>
-                <td>NAS</td>
-                <td>Completed</td>
-                <td>
-                  <div class="log-detail">
-                    <span>Transfer completed successfully.</span>
-                    <button type="button" class="secondary copy-icon-btn" aria-label="Copy log detail" title="Copy log detail" disabled>
-                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h10v10H9z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 5h10v2H7v8H5z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <div class="section-launch-row">
+        <label class="theme-picker" for="themeMode">
+          Theme
+          <select id="themeMode" aria-label="Theme mode">
+            <option value="auto">Auto</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          id="moveRulesToggleBtn"
+          class="secondary icon-button"
+          aria-label="Open move rules"
+          aria-expanded="false"
+          aria-controls="moveRulesPanel"
+        >
+          <span class="icon-glyph" aria-hidden="true">&#8644;</span>
+          <span>Move Rules</span>
+        </button>
         <button
           type="button"
           id="settingsToggleBtn"
@@ -101,37 +91,26 @@
         </button>
         <button
           type="button"
-          id="moveRulesToggleBtn"
+          id="logoutBtn"
           class="secondary icon-button"
-          aria-label="Open move rules"
-          aria-expanded="false"
-          aria-controls="moveRulesPanel"
+          aria-label="Log out"
         >
-          <span class="icon-glyph" aria-hidden="true">&#8644;</span>
-          <span>Move Rules</span>
+          <span class="icon-glyph" aria-hidden="true">&#x21AA;</span>
+          <span>Log Out</span>
         </button>
       </div>
 
       <section id="settingsPanel" class="panel settings-panel hidden">
         <h2>Settings</h2>
         <div id="settingsMenu" class="settings-menu" role="tablist" aria-label="Settings sections">
-          <button type="button" class="settings-tab active" data-settings-view="general">General</button>
-          <button type="button" class="settings-tab secondary" data-settings-view="transmission">Transmission</button>
+          <button type="button" class="settings-tab active" data-settings-view="transmission">Transmission</button>
+          <button type="button" class="settings-tab secondary" data-settings-view="general">Source</button>
           <button type="button" class="settings-tab secondary" data-settings-view="security">Security</button>
         </div>
 
-        <div id="settingsGeneralView" class="settings-view">
-          <h3>General</h3>
+        <div id="settingsGeneralView" class="settings-view hidden">
+          <h3>Source</h3>
           <form id="generalSettingsForm" class="grid-form">
-            <label class="theme-picker" for="themeMode">
-              Theme
-              <select id="themeMode" aria-label="Theme mode">
-                <option value="auto">Auto</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
-
             <label class="check-label">
               <input type="checkbox" name="remove_torrent_on_complete" checked />
               Remove torrent from Transmission after transfer completes
@@ -144,11 +123,11 @@
                 Source type
                 <select name="watch_source_kind" id="watchSourceKind" required>
                   <option value="local">Local Docker volume/path</option>
-                  <option value="sftp">Remote SFTP source</option>
+                  <option value="ssh">Remote SSH negotiation</option>
                 </select>
               </label>
 
-              <p id="sourceTypeHint" class="panel-subtitle">Choose local when this container can read the completed files directly, or SFTP when it cannot.</p>
+              <p id="sourceTypeHint" class="panel-subtitle">Choose local when this container can read the completed files directly, or remote SSH negotiation when it cannot.</p>
 
               <label>
                 Base path
@@ -182,35 +161,38 @@
                   Key Passphrase
                   <input name="watch_key_passphrase" type="password" placeholder="optional" />
                 </label>
+                <label class="check-label">
+                  <input name="watch_attempt_sudo" type="checkbox" />
+                  Attempt with sudo on failure
+                </label>
                 <div class="row-actions stack-actions">
                   <button type="button" id="testWatchSourceBtn" class="secondary">Test Connection</button>
-                  <button type="submit" id="watchSourceSaveBtn" disabled>Save General Settings</button>
+                  <p id="watchSourceCapabilityInfo" class="panel-subtitle">Run Test Connection to detect source transfer methods.</p>
+                  <button type="submit" id="watchSourceSaveBtn" disabled>Save Source</button>
                 </div>
               </div>
             </fieldset>
 
-            <fieldset class="settings-fieldset">
-              <legend>Ignored Labels</legend>
-              <p class="panel-subtitle">Torrents carrying any of these labels will be hidden from the overview.</p>
-              <div id="ignoredLabelsList" class="label-chips"></div>
-              <div class="row-inline-actions">
-                <input id="ignoredLabelsInput" list="knownLabels" placeholder="label name" />
-                <button type="button" id="addIgnoredLabelBtn" class="secondary">Add</button>
-              </div>
-            </fieldset>
-
             <div id="generalSettingsActions" class="row-actions">
-              <button type="submit" id="generalSettingsSubmitBtn">Save General Settings</button>
+              <button type="submit" id="generalSettingsSubmitBtn">Save Source</button>
             </div>
           </form>
         </div>
 
-        <div id="settingsTransmissionView" class="settings-view hidden">
+        <div id="settingsTransmissionView" class="settings-view">
           <h3>Transmission</h3>
           <form id="transmissionForm" class="grid-form">
             <label>
-              RPC URL
-              <input name="rpc_url" placeholder="http://transmission:9091/transmission/rpc" required />
+              RPC Domain
+              <input name="rpc_domain" placeholder="http://transmission" required />
+            </label>
+            <label>
+              RPC Port (optional)
+              <input name="rpc_port" type="number" min="1" max="65535" placeholder="9091 (or 443 when TLS verify is enabled)" />
+            </label>
+            <label>
+              RPC Path (optional)
+              <input name="rpc_path" placeholder="/transmission/rpc" />
             </label>
             <label>
               Username
@@ -228,33 +210,41 @@
               <input name="transmission_in_container" id="transmissionInContainer" type="checkbox" />
               Transmission is running in a container
             </label>
-            <p class="panel-subtitle">If enabled, use either a shared mounted path in Watch Location or Remote SFTP source to access completed data.</p>
+            <p class="panel-subtitle">If enabled, use either a shared mounted path in Watch Location or Remote SSH negotiation to access completed data.</p>
+            <div id="remapForm" class="grid-form hidden" style="margin-top:8px">
+              <fieldset class="settings-fieldset">
+                <legend>Container Path Remapping</legend>
+                <p class="panel-subtitle">Enable this when Transmission runs in a separate container and its reported download paths differ from the paths visible here.</p>
+                <label class="check-label">
+                  <input type="checkbox" id="remapDownloadPath" name="remap_download_path" />
+                  Remap Transmission download paths
+                </label>
+                <div id="remapPathFields" class="hidden">
+                  <label>
+                    Transmission reports path starting with
+                    <input name="remap_source_prefix" placeholder="/downloads/complete" />
+                  </label>
+                  <label>
+                    Replace with (path as seen in this container)
+                    <input name="remap_target_prefix" placeholder="/watch" />
+                  </label>
+                </div>
+                <div class="row-actions">
+                  <button type="button" id="saveRemapBtn">Save Path Remapping</button>
+                </div>
+              </fieldset>
+            </div>
             <div class="row-actions stack-actions">
               <button type="button" id="testTransmissionBtn" class="secondary">Test Connection</button>
               <button type="submit" id="transmissionSubmitBtn" disabled>Save</button>
             </div>
-          </form>
-
-          <form id="remapForm" class="grid-form" style="margin-top:18px">
             <fieldset class="settings-fieldset">
-              <legend>Container Path Remapping</legend>
-              <p class="panel-subtitle">Enable this when Transmission runs in a separate container and its reported download paths differ from the paths visible here.</p>
-              <label class="check-label">
-                <input type="checkbox" id="remapDownloadPath" name="remap_download_path" />
-                Remap Transmission download paths
-              </label>
-              <div id="remapPathFields" class="hidden">
-                <label>
-                  Transmission reports path starting with
-                  <input name="remap_source_prefix" placeholder="/downloads/complete" />
-                </label>
-                <label>
-                  Replace with (path as seen in this container)
-                  <input name="remap_target_prefix" placeholder="/watch" />
-                </label>
-              </div>
-              <div class="row-actions">
-                <button type="submit">Save Path Remapping</button>
+              <legend>Ignored Labels</legend>
+              <p class="panel-subtitle">Torrents carrying any of these labels will be hidden from the overview.</p>
+              <div id="ignoredLabelsList" class="label-chips"></div>
+              <div class="row-inline-actions">
+                <input id="ignoredLabelsInput" list="knownLabels" placeholder="label name" />
+                <button type="button" id="addIgnoredLabelBtn" class="secondary">Add</button>
               </div>
             </fieldset>
           </form>
@@ -358,6 +348,10 @@
                 Key Passphrase
                 <input name="key_passphrase" type="password" placeholder="optional" />
               </label>
+              <label class="check-label">
+                <input name="attempt_sudo" type="checkbox" />
+                Attempt with sudo on failure
+              </label>
               <label>
                 Transfer method
                 <select id="destinationTransferMethod" name="transfer_method_preference">
@@ -425,9 +419,18 @@
               <input type="checkbox" name="enabled" checked />
               Enabled
             </label>
+            <label class="check-label compact">
+              <input type="checkbox" name="remove_from_client" id="ruleRemoveFromClient" checked />
+              Remove from client
+            </label>
+            <label class="check-label compact" id="ruleTrashDataWrap">
+              <input type="checkbox" name="trash_data_on_remove" id="ruleTrashDataOnRemove" />
+              Trash data
+            </label>
             <button type="submit" id="ruleSubmitBtn">Add Rule</button>
             <button type="button" id="ruleCancelBtn" class="secondary hidden">Cancel</button>
           </form>
+          <p id="ruleEffectiveMethodInfo" class="panel-subtitle">Effective method: select a destination to preview.</p>
 
           <div class="table-wrap">
             <table>
@@ -448,17 +451,48 @@
 
       </div>
 
+      <section class="panel" id="activityLogPanel">
+        <h2>Live Activity Log</h2>
+        <p class="panel-subtitle">Shows in-flight transfers and recent events from tests, connections, and moves.</p>
+        <div class="table-wrap activity-log-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Torrent</th>
+                <th>Label</th>
+                <th>Destination</th>
+                <th>Status</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody id="logsTable">
+              <!-- Example row -->
+              <tr>
+                <td>2026-05-15 12:34:56</td>
+                <td>Example Torrent</td>
+                <td>Movies</td>
+                <td>NAS</td>
+                <td>Completed</td>
+                <td>
+                  <div class="log-detail">
+                    <span>Transfer completed successfully.</span>
+                    <button type="button" class="secondary copy-icon-btn" aria-label="Copy log detail" title="Copy log detail" disabled>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h10v10H9z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 5h10v2H7v8H5z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
     </main>
 
-    <div id="warningBanner" class="warning-banner hidden">
-      <p>
-        Remote-to-remote transfers are less efficient. Consider mounting a local disk to the container as the source or destination, depending on where this is running.
-      </p>
-    </div>
-
     <div id="methodBanner" class="info-banner hidden"></div>
 
-    <script src="/static/app.js?v=20260515-6" type="module"></script>
+    <script src="/static/app.js?v=20260516-10" type="module"></script>
   </body>
 </html>

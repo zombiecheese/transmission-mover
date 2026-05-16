@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-import socket
+import os
 
-import paramiko
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
@@ -12,14 +11,18 @@ from app.api_serializers import to_safe_app_settings, to_safe_transmission
 from app.api_validators import validate_app_settings_payload
 from app.db import get_session
 from app.runtime import log_activity_error
-from app.schemas import AppSettingsIn, AppSettingsSafeOut, SftpTestIn, TransmissionConfigIn, TransmissionConfigOut
+from app.schemas import (
+    AppSettingsIn,
+    AppSettingsSafeOut,
+    SftpTestIn,
+    TransmissionConfigIn,
+    TransmissionConfigOut,
+    TransmissionContainerModeIn,
+)
 from app.ssh_utils import (
-    parse_private_key,
-    remote_can_list_directory,
-    remote_can_write_directory,
-    remote_has_cmd,
-    remote_has_sftp,
-    remote_is_directory,
+    connect_ssh_transport,
+    detect_remote_transfer_capabilities,
+    validate_remote_base_path,
 )
 from app.transmission import TransmissionClient
 
@@ -38,6 +41,45 @@ def get_app_settings(session: Session = Depends(get_session)) -> AppSettingsSafe
 @router.put("/app-settings", response_model=AppSettingsSafeOut)
 def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
     validate_app_settings_payload(payload)
+
+    # Auto-discover transfer methods if remote SSH source is configured
+    if payload.watch_source_kind == "ssh" and payload.watch_host and payload.watch_username and payload.watch_base_path:
+        transport = None
+        try:
+            transport = connect_ssh_transport(
+                host=payload.watch_host,
+                port=payload.watch_port,
+                username=payload.watch_username,
+                password=payload.watch_password,
+                private_key=payload.watch_private_key,
+                key_passphrase=payload.watch_key_passphrase,
+            )
+            caps = detect_remote_transfer_capabilities(
+                transport,
+                payload.watch_host,
+                payload.watch_port,
+                attempt_sudo=payload.watch_attempt_sudo,
+            )
+            available_methods = caps["available_methods"]
+
+            if "sftp" not in available_methods:
+                raise RuntimeError("SFTP subsystem is required for watch source")
+
+            payload.watch_detected_methods = ",".join(available_methods)
+            payload.watch_detected_preferred_method = caps["preferred_method"]
+            payload.watch_detected_sftp_port = caps["service_ports"]["sftp"]
+            payload.watch_detected_scp_port = caps["service_ports"]["scp"]
+            payload.watch_detected_rsync_port = caps["service_ports"]["rsync"]
+        except Exception as exc:
+            logger.exception("Failed to auto-discover transfer methods for watch source")
+            raise HTTPException(status_code=400, detail=f"Failed to auto-discover transfer methods for watch source: {exc}")
+        finally:
+            if transport is not None:
+                try:
+                    transport.close()
+                except Exception:
+                    pass
+
     cfg = crud.upsert_app_config(session, payload)
     return to_safe_app_settings(cfg)
 
@@ -56,71 +98,76 @@ def put_transmission(payload: TransmissionConfigIn, session: Session = Depends(g
     return to_safe_transmission(cfg)
 
 
+@router.put("/app-settings/transmission-container", response_model=AppSettingsSafeOut)
+def put_transmission_container_mode(
+    payload: TransmissionContainerModeIn,
+    session: Session = Depends(get_session),
+) -> AppSettingsSafeOut:
+    cfg = crud.update_transmission_in_container(session, payload.transmission_in_container)
+    return to_safe_app_settings(cfg)
+
+
 @router.post("/sftp/test")
 def test_sftp(payload: SftpTestIn, session: Session = Depends(get_session)) -> dict[str, object]:
     if not payload.base_path:
         raise HTTPException(status_code=400, detail="Base path is required for SFTP test")
+
+    # Check if the destination is local
+    is_local = not payload.host and not payload.username
+    if is_local:
+        if not os.path.exists(payload.base_path):
+            raise HTTPException(status_code=400, detail=f"Base path does not exist: {payload.base_path}")
+        if not os.access(payload.base_path, os.W_OK):
+            raise HTTPException(status_code=400, detail=f"Base path is not writable: {payload.base_path}")
+        return {"ok": True, "message": "Local path validation succeeded."}
+
     role = (payload.role or "destination").strip().lower()
     if role not in {"destination", "source"}:
         raise HTTPException(status_code=400, detail="role must be destination or source")
 
-    def is_tcp_open(host: str, port: int, timeout: float = 2.0) -> bool:
-        try:
-            with socket.create_connection((host, port), timeout=timeout):
-                return True
-        except Exception:
-            return False
-
     transport = None
     try:
-        sock = socket.create_connection((payload.host, payload.port), timeout=10)
-        transport = paramiko.Transport(sock)
-        pkey = parse_private_key(payload.private_key, payload.key_passphrase) if payload.private_key else None
-        transport.connect(username=payload.username, password=payload.password, pkey=pkey)
+        transport = connect_ssh_transport(
+            host=payload.host,
+            port=payload.port,
+            username=payload.username,
+            password=payload.password,
+            private_key=payload.private_key,
+            key_passphrase=payload.key_passphrase,
+        )
 
-        if not remote_is_directory(transport, payload.base_path):
-            raise RuntimeError(f"base path is not a directory: {payload.base_path}")
+        validation = validate_remote_base_path(
+            transport,
+            payload.base_path,
+            role,
+            attempt_sudo=payload.attempt_sudo,
+        )
+        if not validation["ok"]:
+            raise HTTPException(status_code=400, detail=validation)
 
-        if role == "source":
-            if not remote_can_list_directory(transport, payload.base_path):
-                raise RuntimeError(f"base path is not readable over SSH: {payload.base_path}")
-        else:
-            if not remote_can_write_directory(transport, payload.base_path):
-                raise RuntimeError(f"base path is not writable over SSH: {payload.base_path}")
+        caps = detect_remote_transfer_capabilities(
+            transport,
+            payload.host,
+            payload.port,
+            attempt_sudo=payload.attempt_sudo,
+        )
+        available_methods = caps["available_methods"]
 
-        has_rsync = remote_has_cmd(transport, "rsync")
-        has_scp = remote_has_cmd(transport, "scp")
-        has_sftp = remote_has_sftp(transport)
-        rsync_daemon_port = 873 if has_rsync and is_tcp_open(payload.host, 873) else None
-
-        available_methods: list[str] = []
-        if has_rsync:
-            available_methods.append("rsync")
-        if has_scp:
-            available_methods.append("scp")
-        if has_sftp:
-            available_methods.append("sftp")
-
-        if role == "source" and not has_sftp:
+        if role == "source" and "sftp" not in available_methods:
             raise RuntimeError("SFTP subsystem is not available for this watch source")
         if not available_methods:
             raise RuntimeError("No supported transfer methods are available for this remote host")
 
-        preferred_method = available_methods[0]
-        service_ports = {
-            "sftp": payload.port if has_sftp else None,
-            "scp": payload.port if has_scp else None,
-            "rsync": rsync_daemon_port if rsync_daemon_port is not None else (payload.port if has_rsync else None),
-        }
-        rsync_mode = "daemon" if rsync_daemon_port is not None else ("ssh" if has_rsync else None)
-
         return {
             "ok": True,
+            "validation": validation,
             "available_methods": available_methods,
-            "preferred_method": preferred_method,
-            "service_ports": service_ports,
-            "rsync_mode": rsync_mode,
+            "preferred_method": caps["preferred_method"],
+            "service_ports": caps["service_ports"],
+            "rsync_mode": caps["rsync_mode"],
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("SFTP test failed")
         log_activity_error(session, "sftp-test", f"SFTP test failed for {payload.host}:{payload.port}: {exc}")
@@ -136,7 +183,7 @@ def test_sftp(payload: SftpTestIn, session: Session = Depends(get_session)) -> d
 @router.post("/transmission/test")
 def test_transmission(payload: TransmissionConfigIn, session: Session = Depends(get_session)) -> dict[str, bool]:
     client = TransmissionClient(
-        rpc_url=payload.rpc_url,
+        rpc_url=payload.rpc_url or "",
         username=payload.username,
         password=payload.password,
         verify_tls=payload.verify_tls,

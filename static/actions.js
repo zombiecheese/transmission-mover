@@ -14,9 +14,11 @@ import {
   getWatchSourceTestPayloadFromForm,
   markTestApprovalDirty,
   renderDestinationCapabilityInfo,
+  renderWatchSourceCapabilityInfo,
   requireFreshTestOrThrow,
   toggleRuleTransferIntervalField,
   toggleWatchSourceFields,
+  syncTransmissionContainerUi,
   updateSourceTypeHint,
   updateTestGatedButtons,
 } from "./shared.js";
@@ -26,10 +28,25 @@ import {
   renderOverview,
   renderRules,
   renderTorrents,
+  computeRuleEffectiveMethod,
   updateRuleDestinationOptions,
   updateRuleLabelOptions,
   renderDestinations,
 } from "./render.js";
+
+function syncRemapControlsVisibility() {
+  const isEnabled = Boolean(els.remapDownloadPath?.checked);
+  els.remapPathFields?.classList.toggle("hidden", !isEnabled);
+  els.saveRemapBtn?.classList.toggle("hidden", !isEnabled);
+}
+
+function setMaskedSecretPlaceholder(input, hasStoredSecret, emptyPlaceholder = "optional") {
+  if (!(input instanceof HTMLInputElement)) {
+    return;
+  }
+  input.value = "";
+  input.placeholder = hasStoredSecret ? "********" : emptyPlaceholder;
+}
 
 export async function refreshTorrents(payload) {
   const data = await api("/api/transmission/torrents", {
@@ -54,13 +71,18 @@ export async function refreshTorrents(payload) {
 export async function refreshTransmission() {
   const cfg = await api("/api/transmission");
   if (!cfg) {
+    state.transmissionHasStoredPassword = false;
+    setMaskedSecretPlaceholder(els.transmissionForm?.password, false);
     return;
   }
 
-  els.transmissionForm.rpc_url.value = cfg.rpc_url || "";
+  els.transmissionForm.rpc_domain.value = cfg.rpc_domain || "";
+  els.transmissionForm.rpc_port.value = cfg.rpc_port || (cfg.verify_tls ? 443 : 9091);
+  els.transmissionForm.rpc_path.value = cfg.rpc_path || "/transmission/rpc";
   els.transmissionForm.username.value = cfg.username || "";
-  els.transmissionForm.password.value = "";
   els.transmissionForm.verify_tls.checked = Boolean(cfg.verify_tls);
+  state.transmissionHasStoredPassword = Boolean(cfg.has_password);
+  setMaskedSecretPlaceholder(els.transmissionForm?.password, state.transmissionHasStoredPassword);
 }
 
 export async function refreshAppSettings() {
@@ -79,24 +101,45 @@ export async function refreshAppSettings() {
   state.appSettings = cfg;
   els.transmissionInContainer.checked = Boolean(cfg.transmission_in_container);
   els.generalSettingsForm.remove_torrent_on_complete.checked = Boolean(cfg.remove_torrent_on_complete);
-  els.watchSourceKind.value = cfg.watch_source_kind || "local";
+  const normalizedWatchSourceKind = cfg.watch_source_kind === "sftp" ? "ssh" : (cfg.watch_source_kind || "local");
+  els.watchSourceKind.value = normalizedWatchSourceKind;
   els.generalSettingsForm.watch_base_path.value = cfg.watch_base_path || "";
   els.generalSettingsForm.watch_host.value = cfg.watch_host || "";
   els.generalSettingsForm.watch_port.value = cfg.watch_port || 22;
   els.generalSettingsForm.watch_username.value = cfg.watch_username || "";
-  els.generalSettingsForm.watch_password.value = "";
+  if (els.generalSettingsForm.watch_attempt_sudo) {
+    els.generalSettingsForm.watch_attempt_sudo.checked = Boolean(cfg.watch_attempt_sudo);
+  }
+  setMaskedSecretPlaceholder(els.generalSettingsForm.watch_password, Boolean(cfg.has_watch_password));
   els.generalSettingsForm.watch_private_key.value = "";
   els.generalSettingsForm.watch_key_passphrase.value = "";
   state.ignoredLabels = cfg.ignored_labels ? cfg.ignored_labels.split(",").map((l) => l.trim()).filter(Boolean) : [];
   renderIgnoredLabels();
+  const savedWatchMethods = (cfg.watch_detected_methods || "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const savedWatchCaps = savedWatchMethods.length
+    ? {
+        available_methods: savedWatchMethods,
+        preferred_method: cfg.watch_detected_preferred_method || null,
+      }
+    : null;
+  state.testCapabilities.watchSourceSftp = savedWatchCaps;
+  renderWatchSourceCapabilityInfo(savedWatchCaps);
   if (els.remapDownloadPath) {
     els.remapDownloadPath.checked = Boolean(cfg.remap_download_path);
-    els.remapPathFields?.classList.toggle("hidden", !cfg.remap_download_path);
+    syncRemapControlsVisibility();
   }
   if (els.remapForm) {
-    els.remapForm.remap_source_prefix.value = cfg.remap_source_prefix || "";
-    els.remapForm.remap_target_prefix.value = cfg.remap_target_prefix || "";
+    if (els.remapSourcePrefix) {
+      els.remapSourcePrefix.value = cfg.remap_source_prefix || "";
+    }
+    if (els.remapTargetPrefix) {
+      els.remapTargetPrefix.value = cfg.remap_target_prefix || "";
+    }
   }
+  syncTransmissionContainerUi();
   updateSourceTypeHint();
   toggleWatchSourceFields();
   updateTestGatedButtons();
@@ -107,12 +150,14 @@ export async function refreshDestinations() {
   state.destinations = await api("/api/destinations");
   renderDestinations();
   updateRuleDestinationOptions();
+  renderRuleEffectiveMethodPreview();
 }
 
 export async function refreshRules() {
   state.rules = await api("/api/rules");
   renderRules();
   renderOverview();
+  renderRuleEffectiveMethodPreview();
 }
 
 export async function refreshActivity() {
@@ -124,6 +169,16 @@ export async function refreshActivity() {
   state.activeTransfers = active || [];
   renderLogs(state.logs);
   renderOverview();
+
+  const payload = state.lastTransmissionPayload || getTransmissionPayloadFromForm();
+  const canRefreshTorrents = Boolean(payload?.rpc_url) && (!payload.username || Boolean(payload.password) || state.transmissionHasStoredPassword);
+  if (canRefreshTorrents) {
+    try {
+      await refreshTorrents(payload);
+    } catch {
+      // Keep activity polling resilient if torrent re-sync temporarily fails.
+    }
+  }
 }
 
 export async function refreshAll() {
@@ -135,7 +190,10 @@ export async function refreshAll() {
     refreshActivity(),
   ]);
   const payload = getTransmissionPayloadFromForm();
-  if (payload.rpc_url) {
+  const canAutoRefresh =
+    Boolean(payload.rpc_url) &&
+    (!payload.username || Boolean(payload.password) || state.transmissionHasStoredPassword);
+  if (canAutoRefresh) {
     try {
       await refreshTorrents(payload);
     } catch {
@@ -151,6 +209,10 @@ export function resetDestinationForm() {
   els.sftpFields.classList.add("hidden");
   if (els.destinationTransferMethod) {
     els.destinationTransferMethod.value = "auto";
+  }
+  setMaskedSecretPlaceholder(els.destinationForm?.password, false);
+  if (els.destinationForm?.attempt_sudo) {
+    els.destinationForm.attempt_sudo.checked = false;
   }
   applyDestinationCapabilities(null);
   renderDestinationCapabilityInfo(null);
@@ -168,9 +230,49 @@ export function resetRuleForm() {
   if (els.ruleTransferMode) els.ruleTransferMode.value = "move";
   if (els.ruleTransferSchedule) els.ruleTransferSchedule.value = "auto";
   if (els.ruleTransferIntervalSeconds) els.ruleTransferIntervalSeconds.value = "300";
+  if (els.ruleRemoveFromClient) {
+    els.ruleRemoveFromClient.checked = Boolean(state.appSettings?.remove_torrent_on_complete ?? true);
+  }
+  if (els.ruleTrashDataOnRemove) {
+    els.ruleTrashDataOnRemove.checked = false;
+    els.ruleTrashDataOnRemove.disabled = !Boolean(els.ruleRemoveFromClient?.checked);
+  }
+  if (els.ruleEffectiveMethodInfo) {
+    els.ruleEffectiveMethodInfo.textContent = "Effective method: select a destination to preview.";
+  }
   toggleRuleTransferIntervalField();
   if (els.ruleSubmitBtn) els.ruleSubmitBtn.textContent = "Add Rule";
   els.ruleCancelBtn?.classList.add("hidden");
+}
+
+function syncRuleRemovalControls() {
+  const shouldRemove = Boolean(els.ruleRemoveFromClient?.checked);
+  if (!els.ruleTrashDataOnRemove) {
+    return;
+  }
+  els.ruleTrashDataWrap?.classList.toggle("hidden", !shouldRemove);
+  if (!shouldRemove) {
+    els.ruleTrashDataOnRemove.checked = false;
+  }
+  els.ruleTrashDataOnRemove.disabled = !shouldRemove;
+}
+
+function renderRuleEffectiveMethodPreview() {
+  if (!els.ruleEffectiveMethodInfo) {
+    return;
+  }
+  const destinationId = Number(els.ruleDestinationSelect?.value || 0);
+  const destination = state.destinations.find((d) => Number(d.id) === destinationId);
+  if (!destination) {
+    els.ruleEffectiveMethodInfo.textContent = "Effective method: select a destination to preview.";
+    return;
+  }
+
+  const previewRule = {
+    transfer_method_preference: "auto",
+  };
+  const method = computeRuleEffectiveMethod(previewRule, destination);
+  els.ruleEffectiveMethodInfo.textContent = `Effective method: ${method}`;
 }
 
 export function initEventHandlers() {
@@ -193,9 +295,27 @@ export function initEventHandlers() {
     updateTestGatedButtons();
   });
 
-  els.transmissionForm?.addEventListener("input", () => {
+  els.transmissionForm?.addEventListener("input", (ev) => {
+    const target = ev.target;
+    if (target instanceof HTMLInputElement && target.id === "transmissionInContainer") {
+      return;
+    }
     markTestApprovalDirty("transmission");
     updateTestGatedButtons();
+  });
+
+  els.transmissionInContainer?.addEventListener("change", () => {
+    syncTransmissionContainerUi();
+    updateSourceTypeHint();
+  });
+
+  els.logoutBtn?.addEventListener("click", () => {
+    fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).finally(() => {
+      window.location.href = "/login";
+    });
   });
 
   els.destinationForm?.addEventListener("input", (ev) => {
@@ -222,12 +342,12 @@ export function initEventHandlers() {
     const payload = getAppSettingsPayloadFromForm();
 
     try {
-      if (els.watchSourceKind?.value === "sftp") {
+      if (els.watchSourceKind?.value === "ssh") {
         const signature = buildTestSignature(getWatchSourceTestPayloadFromForm());
         requireFreshTestOrThrow(
           "watchSourceSftp",
           signature,
-          "Run a successful Watch Source SFTP Test Connection before saving. Retest after any credential or host change."
+          "Run a successful Watch Source SSH Test Connection before saving. Retest after any credential or host change."
         );
       }
 
@@ -240,7 +360,7 @@ export function initEventHandlers() {
       toggleWatchSourceFields();
       updateTestGatedButtons();
       checkRemoteToRemoteTransfer();
-      showMessage("General settings saved.");
+      showMessage("Source settings saved.");
     } catch (err) {
       showMessage(err.message, true);
     }
@@ -262,13 +382,11 @@ export function initEventHandlers() {
         method: "PUT",
         body: JSON.stringify(payload),
       });
-      const appPayload = {
-        ...(state.appSettings || {}),
-        transmission_in_container: Boolean(els.transmissionInContainer?.checked),
-      };
-      const appData = await api("/api/app-settings", {
+      const appData = await api("/api/app-settings/transmission-container", {
         method: "PUT",
-        body: JSON.stringify(appPayload),
+        body: JSON.stringify({
+          transmission_in_container: Boolean(els.transmissionInContainer?.checked),
+        }),
       });
       state.appSettings = appData;
       updateSourceTypeHint();
@@ -300,21 +418,32 @@ export function initEventHandlers() {
 
   els.testDestinationBtn?.addEventListener("click", async () => {
     const payload = getDestinationTestPayloadFromForm();
-    if (!payload.host || !payload.username || !payload.base_path) {
+    const isLocal = !payload.host && !payload.username;
+    if (!isLocal && (!payload.host || !payload.username || !payload.base_path)) {
       showMessage("Host, username, and base path are required to test SFTP.", true);
       return;
     }
     try {
       const result = await api("/api/sftp/test", { method: "POST", body: JSON.stringify(payload) });
       state.testApprovals.destinationSftp = buildTestSignature(payload);
-      state.testCapabilities.destinationSftp = result;
-      applyDestinationCapabilities(result);
-      renderDestinationCapabilityInfo(result);
-      if (els.destinationTransferMethod && (!els.destinationTransferMethod.value || els.destinationTransferMethod.value === "auto")) {
-        els.destinationTransferMethod.value = result?.preferred_method || "sftp";
+      if (isLocal) {
+        state.testCapabilities.destinationSftp = null;
+        applyDestinationCapabilities(null);
+        renderDestinationCapabilityInfo(null);
+      } else {
+        state.testCapabilities.destinationSftp = result;
+        applyDestinationCapabilities(result);
+        renderDestinationCapabilityInfo(result);
+        if (els.destinationTransferMethod && (!els.destinationTransferMethod.value || els.destinationTransferMethod.value === "auto")) {
+          els.destinationTransferMethod.value = result?.preferred_method || "sftp";
+        }
       }
       updateTestGatedButtons();
-      showMessage("Remote destination validation succeeded. Preferred method and ports captured.");
+      if (isLocal) {
+        showMessage("Local destination path validation succeeded.");
+      } else {
+        showMessage("Remote destination validation succeeded. Preferred method and ports captured.");
+      }
     } catch (err) {
       markTestApprovalDirty("destinationSftp");
       applyDestinationCapabilities(null);
@@ -326,14 +455,16 @@ export function initEventHandlers() {
   els.testWatchSourceBtn?.addEventListener("click", async () => {
     const payload = getWatchSourceTestPayloadFromForm();
     if (!payload.host || !payload.username || !payload.base_path) {
-      showMessage("Host, username, and base path are required to test SFTP.", true);
+      showMessage("Host, username, and base path are required to test remote SSH source.", true);
       return;
     }
     try {
-      await api("/api/sftp/test", { method: "POST", body: JSON.stringify(payload) });
+      const result = await api("/api/sftp/test", { method: "POST", body: JSON.stringify(payload) });
       state.testApprovals.watchSourceSftp = buildTestSignature(payload);
+      state.testCapabilities.watchSourceSftp = result;
+      renderWatchSourceCapabilityInfo(result);
       updateTestGatedButtons();
-      showMessage("SFTP watch source connection and path validation succeeded.");
+      showMessage("Remote SSH source connection and path validation succeeded.");
     } catch (err) {
       markTestApprovalDirty("watchSourceSftp");
       updateTestGatedButtons();
@@ -355,16 +486,17 @@ export function initEventHandlers() {
     ev.preventDefault();
     const payload = formToObject(els.destinationForm);
     payload.port = Number(payload.port || 22);
+    payload.attempt_sudo = Boolean(els.destinationForm.attempt_sudo?.checked);
 
     try {
-      if (payload.kind === "remote") {
-        const signature = buildTestSignature(getDestinationTestPayloadFromForm());
-        requireFreshTestOrThrow(
-          "destinationSftp",
-          signature,
-          "Run a successful Destination Test Connection before saving. Retest after any credential or host/path change."
-        );
+      const signature = buildTestSignature(getDestinationTestPayloadFromForm());
+      requireFreshTestOrThrow(
+        "destinationSftp",
+        signature,
+        "Run a successful Destination Test Connection before saving. Retest after any path, host, or credential change."
+      );
 
+      if (payload.kind === "remote") {
         const caps = state.testCapabilities.destinationSftp;
         if (!caps) {
           throw new Error("Run Destination Test Connection to negotiate transfer capability before saving.");
@@ -411,6 +543,8 @@ export function initEventHandlers() {
     payload.transfer_mode = els.ruleTransferMode?.value || "move";
     payload.transfer_schedule = els.ruleTransferSchedule?.value || "auto";
     payload.transfer_interval_seconds = Number(els.ruleTransferIntervalSeconds?.value || 300);
+    payload.remove_from_client = Boolean(els.ruleRemoveFromClient?.checked);
+    payload.trash_data_on_remove = Boolean(els.ruleTrashDataOnRemove?.checked);
 
     try {
       if (state.editingRuleId) {
@@ -487,9 +621,14 @@ export function initEventHandlers() {
         els.destinationForm.host.value = dest.host || "";
         els.destinationForm.port.value = dest.port || 22;
         els.destinationForm.username.value = dest.username || "";
-        els.destinationForm.password.value = "";
+        if (els.destinationForm.attempt_sudo) {
+          els.destinationForm.attempt_sudo.checked = Boolean(dest.attempt_sudo);
+        }
+        setMaskedSecretPlaceholder(els.destinationForm.password, Boolean(dest.has_password));
         els.destinationForm.private_key.value = "";
         els.destinationForm.key_passphrase.value = "";
+      } else if (els.destinationForm.attempt_sudo) {
+        els.destinationForm.attempt_sudo.checked = false;
       }
       if (els.destinationSubmitBtn) els.destinationSubmitBtn.textContent = "Update Destination";
       els.destinationCancelBtn?.classList.remove("hidden");
@@ -531,6 +670,14 @@ export function initEventHandlers() {
       if (els.ruleTransferIntervalSeconds) {
         els.ruleTransferIntervalSeconds.value = String(rule.transfer_interval_seconds || 300);
       }
+      if (els.ruleRemoveFromClient) {
+        els.ruleRemoveFromClient.checked = Boolean(rule.remove_from_client);
+      }
+      if (els.ruleTrashDataOnRemove) {
+        els.ruleTrashDataOnRemove.checked = Boolean(rule.trash_data_on_remove);
+      }
+      syncRuleRemovalControls();
+      renderRuleEffectiveMethodPreview();
       toggleRuleTransferIntervalField();
       if (els.ruleForm.enabled) els.ruleForm.enabled.checked = rule.enabled;
       if (els.ruleSubmitBtn) els.ruleSubmitBtn.textContent = "Update Rule";
@@ -578,6 +725,33 @@ export function initEventHandlers() {
       return;
     }
 
+    const removeTorrentId = target.dataset.removeLabelTorrentId;
+    const removeLabelEncoded = target.dataset.removeLabel;
+    if (removeTorrentId && removeLabelEncoded) {
+      const payload = state.lastTransmissionPayload || getTransmissionPayloadFromForm();
+      if (!payload?.rpc_url) {
+        showMessage("Test Transmission connection first.", true);
+        return;
+      }
+
+      const labelToRemove = decodeURIComponent(removeLabelEncoded);
+      try {
+        await api("/api/transmission/torrents/label/remove", {
+          method: "POST",
+          body: JSON.stringify({
+            ...payload,
+            torrent_id: Number(removeTorrentId),
+            label: labelToRemove,
+          }),
+        });
+        await refreshTorrents(payload);
+        showMessage(`Removed label '${labelToRemove}'.`);
+      } catch (err) {
+        showMessage(err.message, true);
+      }
+      return;
+    }
+
     const torrentId = target.dataset.assignLabel;
     if (!torrentId) {
       return;
@@ -618,18 +792,17 @@ export function initEventHandlers() {
   });
 
   els.remapDownloadPath?.addEventListener("change", () => {
-    els.remapPathFields?.classList.toggle("hidden", !els.remapDownloadPath.checked);
+    syncRemapControlsVisibility();
   });
 
-  els.remapForm?.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
+  els.saveRemapBtn?.addEventListener("click", async () => {
     const merged = {
       ...(state.appSettings || {}),
       ignored_labels: state.ignoredLabels.join(","),
       transmission_in_container: Boolean(els.transmissionInContainer?.checked),
       remap_download_path: els.remapDownloadPath?.checked ?? false,
-      remap_source_prefix: els.remapForm.remap_source_prefix.value.trim() || null,
-      remap_target_prefix: els.remapForm.remap_target_prefix.value.trim() || null,
+      remap_source_prefix: els.remapSourcePrefix?.value?.trim() || null,
+      remap_target_prefix: els.remapTargetPrefix?.value?.trim() || null,
     };
     try {
       const data = await api("/api/app-settings", {
@@ -654,6 +827,14 @@ export function initEventHandlers() {
 
   els.ruleTransferSchedule?.addEventListener("change", () => {
     toggleRuleTransferIntervalField();
+  });
+
+  els.ruleDestinationSelect?.addEventListener("change", () => {
+    renderRuleEffectiveMethodPreview();
+  });
+
+  els.ruleRemoveFromClient?.addEventListener("change", () => {
+    syncRuleRemovalControls();
   });
 
   els.addIgnoredLabelBtn?.addEventListener("click", () => {

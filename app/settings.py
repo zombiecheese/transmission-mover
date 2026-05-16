@@ -10,6 +10,8 @@ class AppSettings(BaseSettings):
     web_auth_username: str | None = None
     web_auth_password: str | None = None
     secret_encryption_key: str | None = None
+    # Dedicated staging path for remote-to-remote transfers
+    staging_path: str = "/staging"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -19,3 +21,23 @@ class AppSettings(BaseSettings):
 
 
 settings = AppSettings()
+
+from pathlib import Path
+import os
+import shutil
+
+def get_staging_path() -> Path:
+    """Return the validated staging path as a Path object. Raises if not present or not writable."""
+    path = Path(settings.staging_path)
+    if not path.exists():
+        raise RuntimeError(f"Staging path does not exist: {path}")
+    if not path.is_dir():
+        raise RuntimeError(f"Staging path is not a directory: {path}")
+    if not os.access(path, os.W_OK):
+        raise RuntimeError(f"Staging path is not writable: {path}")
+    # Optionally check for free space (e.g., at least 1MB)
+    min_bytes = 1024 * 1024
+    free_bytes = shutil.disk_usage(path).free
+    if free_bytes < min_bytes:
+        raise RuntimeError(f"Staging path has insufficient free space: {free_bytes} bytes")
+    return path

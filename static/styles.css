@@ -164,6 +164,18 @@ body {
   min-width: 0;
 }
 
+.activity-log-wrap {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.activity-log-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card);
+}
+
 .overview-header {
   display: flex;
   align-items: center;
@@ -173,6 +185,20 @@ body {
 
 .overview-header h2 {
   margin: 0;
+}
+
+.overview-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin: -2px 0 10px;
+}
+
+.overview-run-now-btn {
+  width: auto;
+  min-width: 122px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 .col-name {
@@ -570,10 +596,19 @@ td code {
 .warning-banner {
   background-color: #ffcc00;
   color: #000;
-  padding: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  width: 100%;
+  padding: 10px 16px;
   text-align: center;
   font-weight: bold;
   border-bottom: 2px solid #ff9900;
+  box-shadow: 0 8px 24px rgba(20, 15, 10, 0.16);
+}
+
+.warning-banner p {
+  margin: 0;
 }
 
 .info-banner {

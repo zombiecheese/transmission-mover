@@ -2,6 +2,90 @@ import { els, state } from "./state.js";
 import { copyToClipboard, escapeHtml, formatBytes, formatUtcDateTime } from "./utils.js";
 import { checkRemoteToRemoteTransfer } from "./shared.js";
 
+function parseMethodList(csv) {
+  return String(csv || "")
+    .split(",")
+    .map((m) => m.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function chooseMethodByPreference(availableMethods, rulePref, destinationPref, detectedPreferred) {
+  const available = new Set(availableMethods);
+  const orderedFallback = ["rsync", "scp", "sftp"];
+
+  const rp = String(rulePref || "auto").toLowerCase();
+  const dp = String(destinationPref || "auto").toLowerCase();
+  const detected = String(detectedPreferred || "").toLowerCase();
+
+  if (rp !== "auto") {
+    if (available.has(rp)) {
+      return rp;
+    }
+    return orderedFallback.find((m) => available.has(m)) || "sftp";
+  }
+
+  if (dp !== "auto") {
+    if (available.has(dp)) {
+      return dp;
+    }
+    return orderedFallback.find((m) => available.has(m)) || "sftp";
+  }
+
+  if (detected && available.has(detected)) {
+    return detected;
+  }
+
+  return orderedFallback.find((m) => available.has(m)) || "sftp";
+}
+
+export function computeRuleEffectiveMethod(rule, destination) {
+  const sourceKind = (state.appSettings?.watch_source_kind || "local").toLowerCase();
+  const destinationKind = (destination?.kind || "local").toLowerCase();
+
+  if (sourceKind === "local" && destinationKind === "local") {
+    return "local filesystem";
+  }
+
+  if (sourceKind === "ssh" && destinationKind === "local") {
+    return "sftp (source -> local, no staging)";
+  }
+
+  if (sourceKind === "local" && (destinationKind === "remote" || destinationKind === "sftp")) {
+    const destMethods = parseMethodList(destination?.detected_methods || "") || [];
+    const available = destMethods.length ? destMethods : ["sftp"];
+    const chosen = chooseMethodByPreference(
+      available,
+      rule?.transfer_method_preference,
+      destination?.transfer_method_preference,
+      destination?.detected_preferred_method
+    );
+    return chosen;
+  }
+
+  if (sourceKind === "ssh" && (destinationKind === "remote" || destinationKind === "sftp")) {
+    const sourceMethods = parseMethodList(state.appSettings?.watch_detected_methods || "");
+    const destinationMethods = parseMethodList(destination?.detected_methods || "");
+
+    const sourceSet = new Set(sourceMethods.length ? sourceMethods : ["sftp"]);
+    const destinationSet = new Set(destinationMethods.length ? destinationMethods : ["sftp"]);
+    const directCandidates = ["rsync", "scp", "sftp"].filter((m) => sourceSet.has(m) && destinationSet.has(m));
+
+    if (!directCandidates.length) {
+      return "staged via sftp";
+    }
+
+    const chosen = chooseMethodByPreference(
+      directCandidates,
+      rule?.transfer_method_preference,
+      destination?.transfer_method_preference,
+      destination?.detected_preferred_method
+    );
+    return chosen;
+  }
+
+  return "auto";
+}
+
 export function renderIgnoredLabels() {
   if (!els.ignoredLabelsList) {
     return;
@@ -97,11 +181,17 @@ export function renderRules() {
     return;
   }
   els.rulesTable.innerHTML = state.rules
-    .map((rule) => `
+    .map((rule) => {
+      const destination = state.destinations.find((d) => Number(d.id) === Number(rule.destination_id));
+      const mode = escapeHtml((rule.transfer_mode || "move").toUpperCase());
+      const effectiveMethod = escapeHtml(computeRuleEffectiveMethod(rule, destination));
+      const removeFromClient = rule.remove_from_client ? "Yes" : "No";
+      const trashData = rule.remove_from_client && rule.trash_data_on_remove ? "Yes" : "No";
+      return `
       <tr>
         <td>${escapeHtml(rule.label)}</td>
         <td>${escapeHtml(rule.destination_name || "Unknown")}</td>
-        <td>${escapeHtml((rule.transfer_mode || "move").toUpperCase())}</td>
+        <td>${mode}<br /><span class="muted">Method: ${effectiveMethod}</span><br /><span class="muted">Remove from client: ${escapeHtml(removeFromClient)}</span><br /><span class="muted">Trash data: ${escapeHtml(trashData)}</span></td>
         <td>${escapeHtml((rule.transfer_schedule || "auto").toUpperCase())}${rule.transfer_schedule === "interval" ? ` (${Number(rule.transfer_interval_seconds || 300)}s)` : ""}</td>
         <td>${rule.enabled ? "Yes" : "No"}</td>
         <td>
@@ -109,7 +199,8 @@ export function renderRules() {
           <button type="button" class="secondary" data-delete-rule="${rule.id}">Delete</button>
         </td>
       </tr>
-    `)
+    `;
+    })
     .join("");
   updateRuleLabelOptions();
   checkRemoteToRemoteTransfer();
@@ -138,14 +229,22 @@ export function renderTorrents() {
   }
   els.torrentsTable.innerHTML = state.torrents
     .map((torrent) => {
-      const labels = Array.isArray(torrent.labels) ? torrent.labels.join(", ") : "";
+      const labels = Array.isArray(torrent.labels) ? torrent.labels : [];
+      const labelsHtml = labels.length
+        ? `<div class="label-chips">${labels
+            .map(
+              (label) =>
+                `<span class="label-chip">${escapeHtml(label)}<button type="button" class="chip-remove" data-remove-label-torrent-id="${torrent.id}" data-remove-label="${encodeURIComponent(label)}" aria-label="Remove label ${escapeHtml(label)}" title="Remove label ${escapeHtml(label)}">×</button></span>`
+            )
+            .join("")}</div>`
+        : "-";
       const pct = Math.round((Number(torrent.percent_done || 0) * 100) * 10) / 10;
       return `
         <tr>
           <td>${escapeHtml(torrent.name)}</td>
           <td>${escapeHtml(formatTorrentStatus(torrent.status))}</td>
           <td>${pct.toFixed(1)}%</td>
-          <td>${escapeHtml(labels || "-")}</td>
+          <td>${labelsHtml}</td>
           <td>
             <input type="text" data-label-input="${torrent.id}" list="knownLabels" placeholder="label" />
             <button type="button" class="secondary" data-assign-label="${torrent.id}">Assign</button>
@@ -162,6 +261,7 @@ export function renderOverview() {
   }
   const ignored = new Set((state.ignoredLabels || []).map((x) => String(x).toLowerCase()));
   const rulesByLabel = new Map((state.rules || []).map((r) => [r.label, r]));
+  const destinationsById = new Map((state.destinations || []).map((d) => [Number(d.id), d]));
   const torrents = (state.torrents || []).filter((t) => {
     const labels = Array.isArray(t.labels) ? t.labels : [];
     return !labels.some((l) => ignored.has(String(l).toLowerCase()));
@@ -178,12 +278,18 @@ export function renderOverview() {
   els.overviewTable.innerHTML = torrents
     .map((torrent) => {
       const labels = Array.isArray(torrent.labels) ? torrent.labels : [];
-      const primaryLabel = labels[0] || "";
-      const rule = rulesByLabel.get(primaryLabel);
+      const matchedLabel = labels.find((label) => rulesByLabel.has(label)) || "";
+      const rule = rulesByLabel.get(matchedLabel);
       const moveTarget = rule?.destination_name || "No matching rule";
+      const ruleMode = String(rule?.transfer_mode || "move").toLowerCase();
       const pct = Math.round((Number(torrent.percent_done || 0) * 100) * 10) / 10;
       const active = (state.activeTransfers || []).find((a) => Number(a.torrent_id) === Number(torrent.id));
-      const moveStatus = active ? `Active ${Number(active.percent || 0).toFixed(1)}%` : "Idle";
+      const destination = rule ? destinationsById.get(Number(rule.destination_id)) : null;
+      const computedMethod = rule ? computeRuleEffectiveMethod(rule, destination) : "-";
+      const methodText = String(active?.method || computedMethod || "").trim();
+      const moveStatus = active
+        ? `Active (${Number(active.percent || 0).toFixed(1)}%) [${String(active.mode || "move").toUpperCase()}${methodText ? ` | ${methodText.toUpperCase()}` : ""}]`
+        : `Idle (${ruleMode}${methodText ? ` | ${methodText.toUpperCase()}` : ""})`;
 
       return `
         <tr>
@@ -214,7 +320,9 @@ export function renderLogs(logs) {
     const speed = formatBytes(item.speed_bytes_per_sec || 0);
     const moved = formatBytes(item.transferred_bytes || 0);
     const total = formatBytes(item.total_bytes || 0);
-    const detail = `${moved} / ${total} at ${speed}/s via ${item.mode || "transfer"}`;
+    const method = String(item.method || "").trim();
+    const mode = String(item.mode || "transfer").trim();
+    const detail = `${moved} / ${total} at ${speed}/s (${mode}${method ? ` via ${method}` : ""})`;
     return {
       created_at: new Date().toISOString(),
       torrent_name: item.torrent_name || "<unknown>",

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Transmission Mover Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f5efe5;
+        --ink: #201a14;
+        --ink-soft: #5f5548;
+        --card: rgba(255, 251, 245, 0.9);
+        --line: rgba(32, 26, 20, 0.15);
+        --accent: #0e8474;
+        --bad: #b22626;
+      }
+
+      :root[data-theme="dark"] {
+        --bg: #141718;
+        --ink: #e7e5de;
+        --ink-soft: #b7b2a6;
+        --card: rgba(28, 31, 33, 0.9);
+        --line: rgba(231, 229, 222, 0.18);
+        --accent: #20b29f;
+        --bad: #ff6f6f;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(1200px 700px at 10% 0%, rgba(239, 91, 43, 0.12), transparent),
+          radial-gradient(1000px 600px at 100% 10%, rgba(14, 132, 116, 0.14), transparent),
+          var(--bg);
+        color: var(--ink);
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .card {
+        width: min(440px, 92vw);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: 0 8px 36px rgba(20, 15, 10, 0.08);
+        padding: 24px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 32px;
+        line-height: 1;
+      }
+
+      p {
+        margin: 0 0 20px;
+        color: var(--ink-soft);
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 600;
+      }
+
+      input {
+        height: 44px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        padding: 0 12px;
+        font: inherit;
+      }
+
+      button {
+        height: 44px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .error {
+        min-height: 20px;
+        font-size: 14px;
+        color: var(--bad);
+      }
+
+      .theme-picker {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ink-soft);
+        font-size: 13px;
+        font-weight: 600;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 6px 10px;
+      }
+
+      .theme-picker select {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        height: 30px;
+        background: transparent;
+        color: var(--ink);
+      }
+    </style>
+  </head>
+  <body>
+    <label class="theme-picker" for="themeMode">
+      Theme
+      <select id="themeMode" aria-label="Theme mode">
+        <option value="auto">Auto</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+
+    <main class="card">
+      <h1>Transmission Mover</h1>
+      <p>Sign in to manage moves, destinations, and automation.</p>
+      <form id="loginForm">
+        <label>
+          Username
+          <input id="username" autocomplete="username" required />
+        </label>
+        <label>
+          Password
+          <input id="password" type="password" autocomplete="current-password" required />
+        </label>
+        <button type="submit" id="loginBtn">Log In</button>
+        <div id="loginError" class="error" aria-live="polite"></div>
+      </form>
+    </main>
+
+    <script>
+      const THEME_STORAGE_KEY = "tm.themeMode";
+
+      function applyTheme(mode) {
+        const normalized = mode === "light" || mode === "dark" ? mode : "auto";
+        const resolved = normalized === "auto"
+          ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : normalized;
+        document.documentElement.dataset.theme = resolved;
+        const themeMode = document.getElementById("themeMode");
+        if (themeMode) {
+          themeMode.value = normalized;
+        }
+      }
+
+      const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY) || "auto";
+      applyTheme(storedTheme);
+
+      const themeMode = document.getElementById("themeMode");
+      themeMode?.addEventListener("change", () => {
+        window.localStorage.setItem(THEME_STORAGE_KEY, themeMode.value);
+        applyTheme(themeMode.value);
+      });
+
+      const form = document.getElementById("loginForm");
+      const username = document.getElementById("username");
+      const password = document.getElementById("password");
+      const errorEl = document.getElementById("loginError");
+      const loginBtn = document.getElementById("loginBtn");
+
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        errorEl.textContent = "";
+        loginBtn.disabled = true;
+        loginBtn.textContent = "Signing in...";
+
+        try {
+          const response = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              username: username.value.trim(),
+              password: password.value,
+            }),
+          });
+
+          if (!response.ok) {
+            let detail = "Login failed";
+            try {
+              const payload = await response.json();
+              detail = payload.detail || detail;
+            } catch (_err) {
+              // Ignore malformed response body.
+            }
+            throw new Error(detail);
+          }
+
+          window.location.href = "/";
+        } catch (err) {
+          errorEl.textContent = err.message || "Login failed";
+        } finally {
+          loginBtn.disabled = false;
+          loginBtn.textContent = "Log In";
+        }
+      });
+    </script>
+  </body>
+</html>

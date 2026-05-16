@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import base64
 import logging
-import secrets
+import time
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
 from app import crud
-from app.auth_crypto import verify_password
+from app.auth_session import SESSION_COOKIE_NAME, get_session_username
 from app.db import create_db_and_tables, engine
-from app.rate_limiter import check_rate_limit, record_failed_attempt, reset_rate_limit
+from app.models import WebAuth
 from app.routers import activity_router, config_router, destinations_router, rules_router, transmission_router
 from app.routers.auth import router as auth_router
 from app.runtime import worker
@@ -37,6 +37,13 @@ app.include_router(activity_router)
 app.include_router(auth_router)
 
 
+_AUTH_CACHE_TTL_SECONDS = 5.0
+_auth_cache: dict[str, float | WebAuth | None] = {
+    "loaded_at": 0.0,
+    "web_auth": None,
+}
+
+
 def _get_client_ip(request: Request) -> str:
     """Extract client IP from request."""
     forwarded = request.headers.get("x-forwarded-for")
@@ -47,94 +54,34 @@ def _get_client_ip(request: Request) -> str:
 
 def _is_web_auth_enabled() -> bool:
     """Check if web auth is configured in the database."""
-    with Session(engine) as session:
-        return crud.get_web_auth(session) is not None
-
-
-def _is_authorized_request(request: Request) -> tuple[bool, str | None]:
-    """
-    Check if the request is authorized via HTTP Basic Auth.
-    Returns (is_authorized, username_attempted).
-    """
-    auth_header = request.headers.get("authorization") or ""
-    if not auth_header.startswith("Basic "):
-        return False, None
-
-    token = auth_header[6:]
-    try:
-        decoded = base64.b64decode(token).decode("utf-8")
-    except Exception:
-        return False, None
-
-    username, separator, password = decoded.partition(":")
-    if not separator:
-        return False, username
-
-    with Session(engine) as session:
-        web_auth = crud.get_web_auth(session)
-        if not web_auth:
-            return False, username
-
-        if verify_password(username, web_auth.username_hash) and verify_password(
-            password, web_auth.password_hash
-        ):
-            reset_rate_limit(_get_client_ip(request))
-            crud.log_auth_attempt(
-                session,
-                username=username,
-                ip_address=_get_client_ip(request),
-                success=True,
-                message="Authentication successful",
-            )
-            return True, username
-        else:
-            crud.log_auth_attempt(
-                session,
-                username=username,
-                ip_address=_get_client_ip(request),
-                success=False,
-                message="Authentication failed: invalid credentials",
-            )
-            return False, username
+    now = time.monotonic()
+    loaded_at = cast(float, _auth_cache.get("loaded_at", 0.0))
+    if now - loaded_at > _AUTH_CACHE_TTL_SECONDS:
+        with Session(engine) as session:
+            _auth_cache["web_auth"] = crud.get_web_auth(session)
+            _auth_cache["loaded_at"] = now
+    return _auth_cache.get("web_auth") is not None
 
 
 @app.middleware("http")
-async def enforce_basic_auth(request: Request, call_next):
-    """Enforce HTTP Basic Auth if configured."""
-    # Skip auth for setup endpoint if not yet configured
-    if request.url.path == "/api/auth/setup":
+async def enforce_session_auth(request: Request, call_next):
+    """Enforce session-cookie auth if web auth is configured."""
+    path = request.url.path
+
+    if path in {"/api/auth/setup", "/api/auth/login", "/api/auth/logout", "/api/health", "/login"}:
+        return await call_next(request)
+    if path.startswith("/static/"):
         return await call_next(request)
 
     if not _is_web_auth_enabled():
         return await call_next(request)
 
-    # Check rate limit
-    client_ip = _get_client_ip(request)
-    if not check_rate_limit(client_ip):
-        with Session(engine) as session:
-            crud.log_auth_attempt(
-                session,
-                username=None,
-                ip_address=client_ip,
-                success=False,
-                message="Rate limit exceeded",
-            )
-        return PlainTextResponse(
-            "Too many failed authentication attempts. Please try again later.",
-            status_code=429,
-        )
-
-    is_authorized, username_attempted = _is_authorized_request(request)
-    if is_authorized:
+    if get_session_username(request.cookies.get(SESSION_COOKIE_NAME)) is not None:
         return await call_next(request)
 
-    # Record failed attempt
-    record_failed_attempt(client_ip)
-    return PlainTextResponse(
-        "Unauthorized",
-        status_code=401,
-        headers={"WWW-Authenticate": 'Basic realm="Transmission Mover"'},
-    )
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return RedirectResponse(url="/login", status_code=302)
 
 
 @app.on_event("startup")
@@ -170,6 +117,13 @@ def on_shutdown() -> None:
 @app.get("/", include_in_schema=False)
 def root() -> FileResponse:
     return FileResponse(static_dir / "index.html")
+
+
+@app.get("/login", include_in_schema=False)
+def login_page(request: Request):
+    if _is_web_auth_enabled() and get_session_username(request.cookies.get(SESSION_COOKIE_NAME)) is not None:
+        return RedirectResponse(url="/", status_code=302)
+    return FileResponse(static_dir / "login.html")
 
 
 @app.get("/api/health", response_model=HealthOut)

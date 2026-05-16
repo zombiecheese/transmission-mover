@@ -35,15 +35,39 @@ export async function api(path, options = {}) {
     ...options,
   });
 
+  if (response.status === 401 && path !== "/api/auth/login") {
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
+
   if (!response.ok) {
     let detail = "Request failed";
+    let detailPayload = null;
     try {
       const payload = await response.json();
-      detail = payload.detail || detail;
+      detailPayload = payload.detail;
+      if (typeof payload.detail === "string") {
+        detail = payload.detail;
+      } else if (payload.detail && typeof payload.detail === "object") {
+        const checks = Array.isArray(payload.detail.checks) ? payload.detail.checks : [];
+        const failed = checks.find((item) => item && item.passed === false);
+        const message = String(payload.detail.message || "").trim();
+        const hint = failed?.hint ? String(failed.hint).trim() : "";
+        const label = failed?.label ? String(failed.label).trim() : "";
+        if (label && hint) {
+          detail = `${label}. ${hint}`;
+        } else if (label) {
+          detail = label;
+        } else if (message) {
+          detail = message;
+        }
+      }
     } catch {
       // Ignore invalid payload and use generic detail.
     }
-    throw new Error(detail);
+    const err = new Error(detail);
+    err.detailPayload = detailPayload;
+    throw err;
   }
 
   if (response.status === 204) {

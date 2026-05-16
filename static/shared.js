@@ -1,6 +1,50 @@
 import { els, state, THEME_STORAGE_KEY } from "./state.js";
 import { formToObject, getSystemPrefersDark, showMessage } from "./utils.js";
 
+const DEFAULT_RPC_PATH = "/transmission/rpc";
+const DEFAULT_RPC_PORT = 9091;
+const DEFAULT_TLS_RPC_PORT = 443;
+
+function normalizeRpcPath(path) {
+  const trimmed = String(path || "").trim();
+  if (!trimmed) {
+    return DEFAULT_RPC_PATH;
+  }
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function normalizeRpcDomain(domain) {
+  const raw = String(domain || "").trim();
+  if (!raw) {
+    return "";
+  }
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.protocol}//${parsed.hostname}`;
+  } catch {
+    return raw.replace(/\/+$/, "").replace(/:\d+$/, "");
+  }
+}
+
+function normalizeRpcPort(port, verifyTls) {
+  const raw = String(port || "").trim();
+  if (!raw) {
+    return verifyTls ? DEFAULT_TLS_RPC_PORT : DEFAULT_RPC_PORT;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) {
+    return verifyTls ? DEFAULT_TLS_RPC_PORT : DEFAULT_RPC_PORT;
+  }
+  return Math.trunc(parsed);
+}
+
+function buildRpcUrl(domain, port, path, verifyTls) {
+  const normalizedDomain = normalizeRpcDomain(domain);
+  const normalizedPort = normalizeRpcPort(port, verifyTls);
+  const normalizedPath = normalizeRpcPath(path);
+  return normalizedDomain ? `${normalizedDomain}:${normalizedPort}${normalizedPath}` : "";
+}
+
 export function setSettingsView(view) {
   const normalized = view === "transmission" ? "transmission" : view === "security" ? "security" : "general";
   els.settingsGeneralView?.classList.toggle("hidden", normalized !== "general");
@@ -32,7 +76,7 @@ export function setMoveRulesPanelOpen(isOpen) {
 export function initSettingsMenu() {
   setSettingsPanelOpen(false);
   setMoveRulesPanelOpen(false);
-  setSettingsView("general");
+  setSettingsView("transmission");
 
   els.settingsToggleBtn?.addEventListener("click", () => {
     const isHidden = els.settingsPanel?.classList.contains("hidden");
@@ -97,9 +141,9 @@ export function initThemeControls() {
 }
 
 export function toggleWatchSourceFields() {
-  const isSftp = els.watchSourceKind?.value === "sftp";
-  els.watchSourceSftpFields?.classList.toggle("hidden", !isSftp);
-  els.generalSettingsActions?.classList.toggle("hidden", isSftp);
+  const isSsh = els.watchSourceKind?.value === "ssh";
+  els.watchSourceSftpFields?.classList.toggle("hidden", !isSsh);
+  els.generalSettingsActions?.classList.toggle("hidden", isSsh);
 }
 
 export function toggleRuleTransferIntervalField() {
@@ -111,23 +155,28 @@ export function toggleRuleTransferIntervalField() {
   els.ruleTransferIntervalSeconds.classList.toggle("hidden", !isInterval);
 }
 
+export function syncTransmissionContainerUi() {
+  const inContainer = Boolean(els.transmissionInContainer?.checked);
+  els.remapForm?.classList.toggle("hidden", !inContainer);
+}
+
 export function updateSourceTypeHint() {
+  syncTransmissionContainerUi();
+
   if (!els.sourceTypeHint) {
     return;
   }
   const inContainer = Boolean(els.transmissionInContainer?.checked);
   const kind = els.watchSourceKind?.value || "local";
   const localOption = els.watchSourceKind?.querySelector('option[value="local"]');
-  const sftpOption = els.watchSourceKind?.querySelector('option[value="sftp"]');
+  const sshOption = els.watchSourceKind?.querySelector('option[value="ssh"]');
 
   if (localOption) {
     localOption.textContent = inContainer ? "Local shared mounted path" : "Local host/path from Transmission";
   }
-  if (sftpOption) {
-    sftpOption.textContent = "Remote SFTP source";
+  if (sshOption) {
+    sshOption.textContent = "Remote SSH negotiation";
   }
-
-  els.remapForm?.classList.toggle("hidden", !inContainer);
 
   if (els.generalSettingsForm?.watch_base_path) {
     els.generalSettingsForm.watch_base_path.placeholder = inContainer
@@ -136,13 +185,13 @@ export function updateSourceTypeHint() {
   }
 
   if (!inContainer) {
-    els.sourceTypeHint.textContent = "Transmission runs directly on the host: local source can use host paths reported by Transmission, or SFTP if preferred.";
+    els.sourceTypeHint.textContent = "Transmission runs directly on the host: local source can use host paths reported by Transmission, or remote SSH negotiation if preferred.";
     return;
   }
   if (kind === "local") {
     els.sourceTypeHint.textContent = "Transmission is containerized: local source requires a shared mounted path visible to this app container.";
   } else {
-    els.sourceTypeHint.textContent = "Transmission is containerized: use SFTP source when host paths are not shared or differ from container paths.";
+    els.sourceTypeHint.textContent = "Transmission is containerized: use remote SSH negotiation when host paths are not shared or differ from container paths.";
   }
 }
 
@@ -156,19 +205,27 @@ export function getAppSettingsPayloadFromForm() {
   payload.transfer_schedule = payload.transfer_schedule || "auto";
   payload.transfer_interval_seconds = Number(payload.transfer_interval_seconds || 300);
   payload.watch_port = Number(payload.watch_port || 22);
+  payload.watch_attempt_sudo = Boolean(els.generalSettingsForm.watch_attempt_sudo?.checked);
   payload.ignored_labels = state.ignoredLabels.join(",");
   payload.remap_download_path = Boolean(els.remapDownloadPath?.checked);
-  payload.remap_source_prefix = els.remapForm?.remap_source_prefix?.value?.trim() || null;
-  payload.remap_target_prefix = els.remapForm?.remap_target_prefix?.value?.trim() || null;
+  payload.remap_source_prefix = els.remapSourcePrefix?.value?.trim() || null;
+  payload.remap_target_prefix = els.remapTargetPrefix?.value?.trim() || null;
   return payload;
 }
 
 export function getTransmissionPayloadFromForm() {
+  const rpc_domain = els.transmissionForm.rpc_domain.value;
+  const verify_tls = Boolean(els.transmissionForm.verify_tls.checked);
+  const rpc_port = normalizeRpcPort(els.transmissionForm.rpc_port.value, verify_tls);
+  const rpc_path = normalizeRpcPath(els.transmissionForm.rpc_path.value);
   return {
-    rpc_url: els.transmissionForm.rpc_url.value,
+    rpc_domain,
+    rpc_port,
+    rpc_path,
+    rpc_url: buildRpcUrl(rpc_domain, rpc_port, rpc_path, verify_tls),
     username: els.transmissionForm.username.value || null,
     password: els.transmissionForm.password.value || null,
-    verify_tls: Boolean(els.transmissionForm.verify_tls.checked),
+    verify_tls,
   };
 }
 
@@ -179,6 +236,7 @@ export function getWatchSourceTestPayloadFromForm() {
     host: f.watch_host?.value?.trim() || "",
     port: Number(f.watch_port?.value || 22),
     username: f.watch_username?.value?.trim() || "",
+    attempt_sudo: Boolean(f.watch_attempt_sudo?.checked),
     password: f.watch_password?.value || null,
     private_key: f.watch_private_key?.value || null,
     key_passphrase: f.watch_key_passphrase?.value || null,
@@ -193,6 +251,7 @@ export function getDestinationTestPayloadFromForm() {
     host: f.host?.value?.trim() || "",
     port: Number(f.port?.value || 22),
     username: f.username?.value?.trim() || "",
+    attempt_sudo: Boolean(f.attempt_sudo?.checked),
     password: f.password?.value || null,
     private_key: f.private_key?.value || null,
     key_passphrase: f.key_passphrase?.value || null,
@@ -205,6 +264,7 @@ export function buildTestSignature(payload) {
     host: payload.host || "",
     port: Number(payload.port || 0),
     username: payload.username || "",
+    attempt_sudo: payload.attempt_sudo === true,
     password: payload.password || "",
     private_key: payload.private_key || "",
     key_passphrase: payload.key_passphrase || "",
@@ -256,6 +316,20 @@ export function renderDestinationCapabilityInfo(result) {
   els.destinationCapabilityInfo.textContent = parts.join(" | ");
 }
 
+export function renderWatchSourceCapabilityInfo(result) {
+  if (!els.watchSourceCapabilityInfo) {
+    return;
+  }
+  if (!result) {
+    els.watchSourceCapabilityInfo.textContent = "Run Test Connection to detect source transfer methods.";
+    return;
+  }
+
+  const methods = Array.isArray(result.available_methods) ? result.available_methods : [];
+  const preferred = result.preferred_method || "sftp";
+  els.watchSourceCapabilityInfo.textContent = `Discovered: ${methods.join(", ") || "none"} | Preferred: ${preferred}`;
+}
+
 export function markTestApprovalDirty(kind) {
   if (state.testApprovals[kind] !== null) {
     state.testApprovals[kind] = null;
@@ -265,6 +339,9 @@ export function markTestApprovalDirty(kind) {
   }
   if (kind === "destinationSftp") {
     renderDestinationCapabilityInfo(null);
+  }
+  if (kind === "watchSourceSftp") {
+    renderWatchSourceCapabilityInfo(null);
   }
   updateTestGatedButtons();
 }
@@ -283,14 +360,13 @@ export function updateTestGatedButtons() {
   }
 
   const destinationSignature = buildTestSignature(getDestinationTestPayloadFromForm());
-  const destinationRequiresTest = els.destKind?.value === "remote";
-  const destinationReady = !destinationRequiresTest || state.testApprovals.destinationSftp === destinationSignature;
+  const destinationReady = state.testApprovals.destinationSftp === destinationSignature;
   if (els.destinationSubmitBtn) {
     els.destinationSubmitBtn.disabled = !destinationReady;
   }
 
   const watchSourceSignature = buildTestSignature(getWatchSourceTestPayloadFromForm());
-  const watchSourceRequiresTest = els.watchSourceKind?.value === "sftp";
+  const watchSourceRequiresTest = els.watchSourceKind?.value === "ssh";
   const watchSourceReady = !watchSourceRequiresTest || state.testApprovals.watchSourceSftp === watchSourceSignature;
   if (els.generalSettingsSubmitBtn) {
     els.generalSettingsSubmitBtn.disabled = !watchSourceReady;
@@ -301,7 +377,7 @@ export function updateTestGatedButtons() {
 }
 
 export function checkRemoteToRemoteTransfer() {
-  const isRemoteSource = (state.appSettings?.watch_source_kind || "local") === "sftp";
+  const isRemoteSource = (state.appSettings?.watch_source_kind || "local") === "ssh";
   const isRemoteDestination = state.destinations.some(
     (dest) => dest.kind === "remote" || dest.kind === "sftp"
   );

@@ -22,4 +22,6 @@ services:
       - ./static:/app/static
       # Mount your Transmission completed/download path(s) here so local moves can access files.
       - ./watch:/watch
+      # Staging volume for temporary data storage during remote-to-remote moves
+      - /path/to/staging/volume:/staging
     restart: unless-stopped
