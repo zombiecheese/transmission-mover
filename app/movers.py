@@ -186,6 +186,27 @@ def _transfer_local_to_remote(
     required_bytes = _get_local_path_size(source)
 
     candidates = _get_remote_method_candidates_with_rule_preference(destination, transfer_method_preference)
+    tool_availability = {
+        "rsync": bool(shutil.which("rsync")),
+        "scp": bool(shutil.which("scp")),
+    }
+    filtered_candidates: list[str] = []
+    for method in candidates:
+        if method in {"rsync", "scp"} and not tool_availability.get(method, False):
+            reason = (
+                f"Skipping {method} for '{torrent_name}' because {method} binary is not available in container. "
+                "Install the missing tool in the image to enable this transfer method."
+            )
+            logger.warning(reason)
+            if activity_log_callback:
+                activity_log_callback(reason)
+            continue
+        filtered_candidates.append(method)
+
+    if not filtered_candidates:
+        filtered_candidates = ["sftp"]
+
+    candidates = filtered_candidates
     failed_shell_methods: list[str] = []
 
     rule_pref = (transfer_method_preference or "auto").lower()

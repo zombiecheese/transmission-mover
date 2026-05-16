@@ -58,13 +58,24 @@ def parse_private_key(private_key: str, passphrase: str | None):
 
 
 def exec_remote_command(transport: paramiko.Transport, command: str) -> tuple[int, str, str]:
-    channel = transport.open_session()
+    try:
+        channel = transport.open_session()
+    except (EOFError, OSError, paramiko.SSHException) as exc:
+        raise RuntimeError(
+            "SSH session closed unexpectedly while running remote command. "
+            "Connection may be unstable or shell execution may be restricted for this account."
+        ) from exc
     try:
         channel.exec_command(command)
         stdout = channel.makefile("rb").read()
         stderr = channel.makefile_stderr("rb").read()
         exit_code = channel.recv_exit_status()
         return exit_code, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+    except (EOFError, OSError, paramiko.SSHException) as exc:
+        raise RuntimeError(
+            "SSH session closed unexpectedly while running remote command. "
+            "Connection may be unstable or shell execution may be restricted for this account."
+        ) from exc
     finally:
         channel.close()
 

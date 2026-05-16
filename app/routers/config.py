@@ -190,9 +190,17 @@ def test_sftp(payload: SftpTestIn, session: Session = Depends(get_session)) -> d
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("SFTP test failed")
+        if "SSH session closed unexpectedly while running remote command" in str(exc):
+            logger.warning("SFTP test failed due to SSH session/channel closure for %s:%s: %s", payload.host, payload.port, exc)
+            detail = (
+                "SFTP test failed: SSH session closed unexpectedly while validating remote path. "
+                "Check SSH server stability, shell command execution permissions, and retry."
+            )
+        else:
+            logger.exception("SFTP test failed")
+            detail = f"SFTP test failed: {exc}"
         log_activity_error(session, "sftp-test", f"SFTP test failed for {payload.host}:{payload.port}: {exc}")
-        raise HTTPException(status_code=400, detail=f"SFTP test failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
     finally:
         try:
             if transport:

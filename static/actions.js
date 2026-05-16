@@ -446,6 +446,16 @@ export function initEventHandlers() {
         state.testCapabilities.destinationSftp = result;
         applyDestinationCapabilities(result);
         renderDestinationCapabilityInfo(result);
+        if (els.destinationTransferMethod) {
+          const allowedMethods = new Set(["auto", "rsync", "scp", "sftp"]);
+          const currentMethod = String(els.destinationTransferMethod.value || "").toLowerCase();
+          if (!allowedMethods.has(currentMethod)) {
+            els.destinationTransferMethod.value = "auto";
+          }
+          if (state.editingDestinationId == null) {
+            els.destinationTransferMethod.value = "auto";
+          }
+        }
       }
       updateTestGatedButtons();
       if (isLocal) {
