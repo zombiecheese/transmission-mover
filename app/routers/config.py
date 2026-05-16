@@ -4,6 +4,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
+from requests import RequestException
 from sqlmodel import Session
 
 from app import crud
@@ -211,7 +212,15 @@ def test_transmission(payload: TransmissionConfigIn, session: Session = Depends(
     try:
         client.ping()
     except Exception as exc:
-        logger.exception("Transmission test failed")
+        if isinstance(exc, RequestException):
+            logger.warning("Transmission test failed for %s: %s", payload.rpc_url, exc)
+            detail = (
+                f"Transmission test failed: unable to reach RPC endpoint at {payload.rpc_url}. "
+                "Check host, port, network reachability, and TLS settings."
+            )
+        else:
+            logger.exception("Transmission test failed")
+            detail = f"Transmission test failed: {exc}"
         log_activity_error(session, "transmission-test", f"Transmission test failed for {payload.rpc_url}: {exc}")
-        raise HTTPException(status_code=400, detail=f"Transmission test failed: {exc}") from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
     return {"ok": True}

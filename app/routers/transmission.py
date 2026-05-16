@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from requests import RequestException
 from sqlmodel import Session
 
 from app import crud
@@ -48,9 +49,17 @@ def list_transmission_torrents(
     try:
         torrents = client.get_torrents()
     except Exception as exc:
-        logger.exception("Failed to load torrents")
+        if isinstance(exc, RequestException):
+            logger.warning("Failed to load torrents from Transmission RPC %s: %s", payload.rpc_url, exc)
+            detail = (
+                f"Failed to reach Transmission RPC at {payload.rpc_url}. "
+                "Check host, port, network reachability, and TLS settings."
+            )
+        else:
+            logger.exception("Failed to load torrents")
+            detail = f"Failed to load torrents: {exc}"
         log_activity_error(session, "transmission-torrents", f"Failed to load torrents from {payload.rpc_url}: {exc}")
-        raise HTTPException(status_code=400, detail=f"Failed to load torrents: {exc}") from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
 
     torrent_items = [to_torrent_out(torrent) for torrent in torrents]
     known_labels = sorted({label for torrent in torrent_items for label in torrent.labels if label})
@@ -71,9 +80,17 @@ def assign_torrent_label(
     try:
         torrent = client.add_label(payload.torrent_id, label)
     except Exception as exc:
-        logger.exception("Failed to assign label")
+        if isinstance(exc, RequestException):
+            logger.warning("Failed to assign label through Transmission RPC %s: %s", payload.rpc_url, exc)
+            detail = (
+                f"Failed to reach Transmission RPC at {payload.rpc_url}. "
+                "Check host, port, network reachability, and TLS settings."
+            )
+        else:
+            logger.exception("Failed to assign label")
+            detail = f"Failed to assign label: {exc}"
         log_activity_error(session, "label-assign", f"Failed to assign label '{label}' to torrent_id={payload.torrent_id}: {exc}")
-        raise HTTPException(status_code=400, detail=f"Failed to assign label: {exc}") from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
 
     return {"ok": True, "torrent": to_torrent_out(torrent)}
 
@@ -92,8 +109,16 @@ def remove_torrent_label(
     try:
         torrent = client.remove_label(payload.torrent_id, label)
     except Exception as exc:
-        logger.exception("Failed to remove label")
+        if isinstance(exc, RequestException):
+            logger.warning("Failed to remove label through Transmission RPC %s: %s", payload.rpc_url, exc)
+            detail = (
+                f"Failed to reach Transmission RPC at {payload.rpc_url}. "
+                "Check host, port, network reachability, and TLS settings."
+            )
+        else:
+            logger.exception("Failed to remove label")
+            detail = f"Failed to remove label: {exc}"
         log_activity_error(session, "label-remove", f"Failed to remove label '{label}' from torrent_id={payload.torrent_id}: {exc}")
-        raise HTTPException(status_code=400, detail=f"Failed to remove label: {exc}") from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
 
     return {"ok": True, "torrent": to_torrent_out(torrent)}

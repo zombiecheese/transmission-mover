@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Any
 
+from requests import RequestException
 from sqlmodel import Session, select
 
 from app import crud
@@ -81,7 +82,7 @@ class MoveWorker:
                     "No rules are due to run at this time",
                     "No eligible torrents matched the enabled rules",
                 }
-                if message in benign_fast_messages:
+                if message in benign_fast_messages or "Source path missing:" in message:
                     logger.debug(
                         "MoveWorker cycle completed quickly in %.2fs with no work due; forcing 1s sleep.",
                         elapsed,
@@ -144,7 +145,10 @@ class MoveWorker:
                 try:
                     torrents = client.get_torrents()
                 except Exception as exc:
-                    logger.exception("Failed to get torrents")
+                    if isinstance(exc, RequestException):
+                        logger.warning("Failed to get torrents from Transmission RPC %s: %s", cfg.rpc_url, exc)
+                    else:
+                        logger.exception("Failed to get torrents")
                     create_log(
                         session,
                         torrent_name="<rpc>",

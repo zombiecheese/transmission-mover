@@ -22,6 +22,10 @@ class InsufficientSpaceError(RuntimeError):
     pass
 
 
+class RemotePathAccessError(RuntimeError):
+    pass
+
+
 ProgressCallback = Callable[[int, int], None]
 MethodUpdateCallback = Callable[[str], None]
 ActivityLogCallback = Callable[[str], None]
@@ -120,12 +124,26 @@ def _apply_path_remap(download_dir: str, app_config: AppConfig | None) -> str:
 
 
 def _resolve_local_source_path(download_dir: str | None, torrent_name: str, app_config: AppConfig | None) -> str:
+    candidates: list[str] = []
+
     if app_config and app_config.watch_base_path:
-        return str(Path(app_config.watch_base_path) / torrent_name)
-    if not download_dir:
+        candidates.append(str(Path(app_config.watch_base_path) / torrent_name))
+
+    if download_dir:
+        remapped = _apply_path_remap(download_dir, app_config)
+        remapped_candidate = str(Path(remapped) / torrent_name)
+        if remapped_candidate not in candidates:
+            candidates.append(remapped_candidate)
+
+    if not candidates:
         raise FileNotFoundError("Missing downloadDir and no watch_base_path configured")
-    remapped = _apply_path_remap(download_dir, app_config)
-    return str(Path(remapped) / torrent_name)
+
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate
+
+    attempted_paths = " | ".join(candidates)
+    raise FileNotFoundError(f"Source path does not exist. Attempted: {attempted_paths}")
 
 
 def _transfer_local_source(
@@ -209,21 +227,28 @@ def _get_remote_method_candidates_with_rule_preference(
     """Get ordered list of transfer methods, considering both destination and rule preferences."""
     rule_pref = (rule_transfer_method_preference or "auto").lower()
     dest_pref = (destination.transfer_method_preference or "auto").lower()
-    detected = (destination.detected_preferred_method or "").lower()
-    
-    # Determine the primary preference
+
+    detected_methods = {
+        item.strip().lower()
+        for item in (destination.detected_methods or "").split(",")
+        if item and item.strip()
+    }
+    ordered_by_priority = ["rsync", "scp", "sftp"]
+
+    # Determine the primary preference.
     if rule_pref != "auto":
-        # Rule has an explicit preference
         primary = rule_pref
     elif dest_pref != "auto":
-        # Destination has an explicit preference
         primary = dest_pref
     else:
-        # Use detected preference, fallback to sftp
-        primary = detected if detected in {"rsync", "scp", "sftp"} else "sftp"
-    
-    # Build candidates list with primary first, then fallbacks
-    return [primary] + [m for m in ["rsync", "scp", "sftp"] if m != primary]
+        # For auto mode, prefer rsync, then scp, then sftp among detected methods.
+        if detected_methods:
+            return [m for m in ordered_by_priority if m in detected_methods]
+        # If detection data is unavailable, still attempt in best-effort priority order.
+        return ordered_by_priority
+
+    # For explicit preferences, keep requested method first and fallback by priority.
+    return [primary] + [m for m in ordered_by_priority if m != primary]
 
 
 def _transfer_local_to_remote_via_shell(
@@ -460,25 +485,25 @@ def _ensure_remote_dirs(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
             try:
                 sftp.mkdir(current)
             except PermissionError as exc:
-                raise RuntimeError(
+                raise RemotePathAccessError(
                     f"Unable to create remote directory '{current}'. The SSH account cannot write to this path. "
-                    "Check the destination base path permissions or use a shell transfer method with a writable path."
+                    "Check destination base path permissions and re-run Destination Test Connection after fixing access."
                 ) from exc
             except FileNotFoundError as exc:
-                raise RuntimeError(
+                raise RemotePathAccessError(
                     f"Unable to create remote directory '{current}'. One of its parent directories does not exist or is not accessible."
                 ) from exc
             except OSError as exc:
-                raise RuntimeError(
+                raise RemotePathAccessError(
                     f"Unable to create remote directory '{current}': {exc}"
                 ) from exc
         except PermissionError as exc:
-            raise RuntimeError(
+            raise RemotePathAccessError(
                 f"Unable to access remote directory '{current}'. The SSH account cannot traverse or inspect this path. "
-                "Check the destination base path permissions."
+                "Check destination base path permissions and re-run Destination Test Connection after fixing access."
             ) from exc
         except OSError as exc:
-            raise RuntimeError(f"Unable to access remote directory '{current}': {exc}") from exc
+            raise RemotePathAccessError(f"Unable to access remote directory '{current}': {exc}") from exc
 
 
 def _remove_remote_path(sftp: paramiko.SFTPClient, remote_path: str) -> None:

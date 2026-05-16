@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlmodel import Session
 from app.models import AppConfig, Destination, LabelRule
 from app.transmission import TransmissionClient
-from app.movers import transfer_to_destination, InsufficientSpaceError
+from app.movers import transfer_to_destination, InsufficientSpaceError, RemotePathAccessError
 from app.crud import create_log
 import logging
 
@@ -99,6 +99,30 @@ def process_torrent(
             message=f"Insufficient space: {exc}",
         )
         return {"processed": False, "message": f"Insufficient space: {exc}"}
+    except FileNotFoundError as exc:
+        logger.warning("Source path missing for %s: %s", torrent_name, exc)
+        create_log(
+            session,
+            torrent_name=torrent_name,
+            torrent_id=torrent_id,
+            label=matched_label,
+            destination_name=destination.name,
+            status="skipped",
+            message=f"Source path missing: {exc}",
+        )
+        return {"processed": False, "message": f"Source path missing: {exc}"}
+    except RemotePathAccessError as exc:
+        logger.warning("Remote destination path access issue for %s: %s", torrent_name, exc)
+        create_log(
+            session,
+            torrent_name=torrent_name,
+            torrent_id=torrent_id,
+            label=matched_label,
+            destination_name=destination.name,
+            status="skipped",
+            message=f"Destination path access failed: {exc}",
+        )
+        return {"processed": False, "message": f"Destination path access failed: {exc}"}
     except Exception as exc:
         logger.exception(f"Failed to move/copy {torrent_name}")
         create_log(
