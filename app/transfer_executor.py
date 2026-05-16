@@ -65,7 +65,16 @@ def process_torrent(
             create_log(session, torrent_name=torrent_name, torrent_id=torrent_id, status="skipped", message=message)
         return {"processed": False, "message": message}
 
+    destination_name = destination.name or "<unknown>"
+    destination_base_path = destination.base_path or "<unset>"
+
     try:
+        logger.info(
+            "Starting transfer for %s using destination '%s' (base_path=%s)",
+            torrent_name,
+            destination_name,
+            destination_base_path,
+        )
         result = transfer_to_destination(
             torrent_name=torrent_name,
             download_dir=torrent.get("downloadDir"),
@@ -112,7 +121,13 @@ def process_torrent(
         )
         return {"processed": False, "message": f"Source path missing: {exc}"}
     except RemotePathAccessError as exc:
-        logger.warning("Remote destination path access issue for %s: %s", torrent_name, exc)
+        logger.warning(
+            "Remote destination path access issue for %s (destination='%s', base_path=%s): %s",
+            torrent_name,
+            destination_name,
+            destination_base_path,
+            exc,
+        )
         create_log(
             session,
             torrent_name=torrent_name,
@@ -120,11 +135,19 @@ def process_torrent(
             label=matched_label,
             destination_name=destination.name,
             status="skipped",
-            message=f"Destination path access failed: {exc}",
+            message=f"Destination path access failed (destination='{destination_name}', base_path={destination_base_path}): {exc}",
         )
-        return {"processed": False, "message": f"Destination path access failed: {exc}"}
+        return {
+            "processed": False,
+            "message": f"Destination path access failed (destination='{destination_name}', base_path={destination_base_path}): {exc}",
+        }
     except Exception as exc:
-        logger.exception(f"Failed to move/copy {torrent_name}")
+        logger.exception(
+            "Failed to move/copy %s (destination='%s', base_path=%s)",
+            torrent_name,
+            destination_name,
+            destination_base_path,
+        )
         create_log(
             session,
             torrent_name=torrent_name,
@@ -132,9 +155,12 @@ def process_torrent(
             label=matched_label,
             destination_name=destination.name,
             status="error",
-            message=f"Failed to move/copy: {exc}",
+            message=f"Failed to move/copy (destination='{destination_name}', base_path={destination_base_path}): {exc}",
         )
-        return {"processed": False, "message": f"Failed to move/copy: {exc}"}
+        return {
+            "processed": False,
+            "message": f"Failed to move/copy (destination='{destination_name}', base_path={destination_base_path}): {exc}",
+        }
 
 def _is_finished(torrent: dict) -> bool:
     # This logic is duplicated from worker.py for now; can be unified if needed.
