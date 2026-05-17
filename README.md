@@ -13,6 +13,9 @@ Transmission Mover is a FastAPI service with a built-in web UI that routes compl
 - Moves or copies completed torrent data to the rule's destination.
 - Optionally removes the torrent from Transmission after a successful transfer, with optional data trash.
 - Records every transfer outcome and active progress in a SQLite-backed activity log.
+- Supports per-rule execution mode selection: sequential by default, or parallel when explicitly enabled.
+- Supports per-rule conflict handling on destination collisions: overwrite, rename, or skip.
+- Supports configurable worker parallelism with a bounded max parallel transfer setting.
 
 ### Source modes
 
@@ -37,6 +40,15 @@ For remote endpoints, the app probes the remote host during the **Test Connectio
 - Detected ports for SFTP / SCP / rsync
 
 Each destination may pin a preferred transfer method or leave it on `auto`.
+
+### Rule execution controls
+
+Each label rule can also control how the transfer is executed:
+
+- **Execution mode** — sequential by default, or parallel when enabled on the rule.
+- **Conflict policy** — choose what happens if the destination path already exists: overwrite, rename, or skip.
+
+The worker also has a global max parallel transfers setting that caps total concurrent transfer work.
 
 ### Authentication
 
@@ -65,9 +77,11 @@ When Transmission runs in a separate container and reports paths that this app c
 
 1. **Transmission** — enter RPC domain, optional port, optional path (default `/transmission/rpc`), credentials, and TLS verify. Run **Test Connection**.
 2. **Source** — choose `local` or `remote SSH`. For remote SSH, provide host, port, credentials, and base path; then **Test Connection** to validate and negotiate methods.
-3. **Destinations** — add one or more destinations (local or remote SSH). Each remote destination must pass **Test Connection** before save.
-4. **Rules** — bind a label to a destination, choose transfer mode (`move` / `copy`), schedule (`auto` / `interval` / `manual`), preferred transfer method, removal behavior, and trash behavior.
+3. **Destinations** — open the Destinations menu to add one or more destinations (local or remote SSH). Each remote destination must pass **Test Connection** before save.
+4. **Label Rules** — open the Label Rules menu to bind a label to a destination, choose transfer mode (`move` / `copy`), execution mode (`sequential` / `parallel`), conflict policy (`overwrite` / `rename` / `skip`), schedule (`auto` / `interval` / `manual`), preferred transfer method, removal behavior, and trash behavior.
 5. **Run All Now** (optional) — immediate one-shot cycle that bypasses schedule timing for that run.
+
+The **Label Management** menu contains the current torrent label assignment tools. The **Activity Log** menu shows in-flight transfers and recent history, and can be cleared with the **Clear Log** button.
 
 ### Rule matching semantics
 
@@ -98,6 +112,7 @@ If any of these fail, the test surfaces the specific failure and save is blocked
 
 - `GET /api/transfers/active` reports current transfers with torrent id/name, destination, mode, method, bytes, speed, percent.
 - `GET /api/logs` returns persisted outcomes with status and message.
+- `DELETE /api/logs` clears the persisted activity log.
 
 ---
 
@@ -125,6 +140,8 @@ If any of these fail, the test surfaces the specific failure and save is blocked
 - `PUT /api/app-settings`
 - `PUT /api/app-settings/transmission-container`
 - `POST /api/sftp/test`
+
+The app settings payload includes `max_parallel_transfers`, which controls the global transfer concurrency cap.
 
 ### Destinations
 - `GET /api/destinations`
