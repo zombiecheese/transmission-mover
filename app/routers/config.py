@@ -10,11 +10,15 @@ from sqlmodel import Session
 from app import crud
 from app.api_serializers import to_safe_app_settings, to_safe_transmission
 from app.api_validators import validate_app_settings_payload
+from app.api_validators import validate_source_app_settings_payload
 from app.db import get_session
 from app.runtime import log_activity_error
 from app.schemas import (
     AppSettingsIn,
     AppSettingsSafeOut,
+    AppSettingsIgnoredLabelsIn,
+    AppSettingsRemapIn,
+    AppSettingsSourceIn,
     SftpTestIn,
     TransmissionConfigIn,
     TransmissionConfigOut,
@@ -104,6 +108,26 @@ def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_sess
                     pass
 
     cfg = crud.upsert_app_config(session, payload)
+    return to_safe_app_settings(cfg)
+
+
+@router.put("/app-settings/source", response_model=AppSettingsSafeOut)
+def put_app_settings_source(payload: AppSettingsSourceIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
+    validate_source_app_settings_payload(payload)
+    cfg = crud.update_app_config_fields(session, payload.model_dump())
+    return to_safe_app_settings(cfg)
+
+
+@router.put("/app-settings/remap", response_model=AppSettingsSafeOut)
+def put_app_settings_remap(payload: AppSettingsRemapIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
+    cfg = crud.update_app_config_fields(session, payload.model_dump())
+    return to_safe_app_settings(cfg)
+
+
+@router.put("/app-settings/ignored-labels", response_model=AppSettingsSafeOut)
+def put_app_settings_ignored_labels(payload: AppSettingsIgnoredLabelsIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
+    normalized = ",".join(label.strip() for label in payload.ignored_labels.split(",") if label.strip())
+    cfg = crud.update_app_config_fields(session, {"ignored_labels": normalized})
     return to_safe_app_settings(cfg)
 
 

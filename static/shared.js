@@ -235,21 +235,27 @@ export function updateSourceTypeHint() {
   }
 }
 
-export function getAppSettingsPayloadFromForm() {
-  const payload = {
-    ...(state.appSettings || {}),
-    ...formToObject(els.generalSettingsForm),
-  };
-  payload.transmission_in_container = Boolean(els.transmissionInContainer?.checked);
+export function getSourceSettingsPayloadFromForm() {
+  const payload = formToObject(els.generalSettingsForm);
   payload.transfer_schedule = payload.transfer_schedule || "auto";
   payload.transfer_interval_seconds = Number(payload.transfer_interval_seconds || 300);
   payload.max_parallel_transfers = Math.max(1, Math.min(8, Number(payload.max_parallel_transfers || 1)));
   payload.watch_port = Number(payload.watch_port || 22);
-  payload.ignored_labels = state.ignoredLabels.join(",");
-  payload.remap_download_path = Boolean(els.remapDownloadPath?.checked);
-  payload.remap_source_prefix = els.remapSourcePrefix?.value?.trim() || null;
-  payload.remap_target_prefix = els.remapTargetPrefix?.value?.trim() || null;
   return payload;
+}
+
+export function getRemapSettingsPayloadFromForm() {
+  return {
+    remap_download_path: Boolean(els.remapDownloadPath?.checked),
+    remap_source_prefix: els.remapSourcePrefix?.value?.trim() || null,
+    remap_target_prefix: els.remapTargetPrefix?.value?.trim() || null,
+  };
+}
+
+export function getIgnoredLabelsPayload() {
+  return {
+    ignored_labels: state.ignoredLabels.join(","),
+  };
 }
 
 export function getTransmissionPayloadFromForm() {

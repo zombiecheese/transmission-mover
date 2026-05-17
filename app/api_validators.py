@@ -4,10 +4,14 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from app import crud
-from app.schemas import AppSettingsIn, DestinationIn, LabelRuleIn
+from app.schemas import AppSettingsIn, AppSettingsSourceIn, DestinationIn, LabelRuleIn
 
 
 def validate_app_settings_payload(payload: AppSettingsIn) -> None:
+    validate_source_app_settings_payload(payload)
+
+
+def validate_source_app_settings_payload(payload: AppSettingsSourceIn) -> None:
     if payload.max_parallel_transfers < 1 or payload.max_parallel_transfers > 8:
         raise HTTPException(status_code=400, detail="max_parallel_transfers must be between 1 and 8")
     if payload.watch_source_kind not in {"local", "ssh"}:

@@ -7,9 +7,11 @@ import {
 import {
   applyDestinationCapabilities,
   buildTestSignature,
-  getAppSettingsPayloadFromForm,
+  getIgnoredLabelsPayload,
   getDestinationTestPayloadFromForm,
+  getRemapSettingsPayloadFromForm,
   getTransmissionPayloadFromForm,
+  getSourceSettingsPayloadFromForm,
   getWatchSourceTestPayloadFromForm,
   markTestApprovalDirty,
   renderDestinationCapabilityInfo,
@@ -141,6 +143,20 @@ export async function refreshAppSettings() {
   updateSourceTypeHint();
   toggleWatchSourceFields();
   updateTestGatedButtons();
+}
+
+async function saveIgnoredLabels() {
+  const payload = getIgnoredLabelsPayload();
+  try {
+    const data = await api("/api/app-settings/ignored-labels", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    state.appSettings = data;
+    showMessage("Ignored labels saved.");
+  } catch (err) {
+    showMessage(err.message, true);
+  }
 }
 
 export async function refreshDestinations() {
@@ -335,7 +351,7 @@ export function initEventHandlers() {
 
   els.generalSettingsForm?.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const payload = getAppSettingsPayloadFromForm();
+    const payload = getSourceSettingsPayloadFromForm();
 
     try {
       if (els.watchSourceKind?.value === "ssh") {
@@ -356,7 +372,7 @@ export function initEventHandlers() {
         );
       }
 
-      const data = await api("/api/app-settings", {
+      const data = await api("/api/app-settings/source", {
         method: "PUT",
         body: JSON.stringify(payload),
       });
@@ -831,18 +847,11 @@ export function initEventHandlers() {
   });
 
   els.saveRemapBtn?.addEventListener("click", async () => {
-    const merged = {
-      ...(state.appSettings || {}),
-      ignored_labels: state.ignoredLabels.join(","),
-      transmission_in_container: Boolean(els.transmissionInContainer?.checked),
-      remap_download_path: els.remapDownloadPath?.checked ?? false,
-      remap_source_prefix: els.remapSourcePrefix?.value?.trim() || null,
-      remap_target_prefix: els.remapTargetPrefix?.value?.trim() || null,
-    };
+    const payload = getRemapSettingsPayloadFromForm();
     try {
-      const data = await api("/api/app-settings", {
+      const data = await api("/api/app-settings/remap", {
         method: "PUT",
-        body: JSON.stringify(merged),
+        body: JSON.stringify(payload),
       });
       state.appSettings = data;
       updateSourceTypeHint();
@@ -850,6 +859,10 @@ export function initEventHandlers() {
     } catch (err) {
       showMessage(err.message, true);
     }
+  });
+
+  els.saveIgnoredLabelsBtn?.addEventListener("click", async () => {
+    await saveIgnoredLabels();
   });
 
   els.destinationCancelBtn?.addEventListener("click", () => {

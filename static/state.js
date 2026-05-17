@@ -81,6 +81,7 @@ export const els = {
   remapDownloadPath: document.getElementById("remapDownloadPath"),
   remapPathFields: document.getElementById("remapPathFields"),
   saveRemapBtn: document.getElementById("saveRemapBtn"),
+  saveIgnoredLabelsBtn: document.getElementById("saveIgnoredLabelsBtn"),
   ignoredLabelsInput: document.getElementById("ignoredLabelsInput"),
   addIgnoredLabelBtn: document.getElementById("addIgnoredLabelBtn"),
   ignoredLabelsList: document.getElementById("ignoredLabelsList"),

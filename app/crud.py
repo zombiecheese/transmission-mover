@@ -86,6 +86,28 @@ def upsert_app_config(session: Session, payload: AppSettingsIn) -> AppConfig:
     return result
 
 
+def update_app_config_fields(session: Session, updates: dict[str, object]) -> AppConfig:
+    cfg = session.get(AppConfig, 1)
+    if not cfg:
+        cfg = AppConfig(id=1)
+
+    secret_fields = {"watch_password", "watch_private_key", "watch_key_passphrase"}
+    for key, value in updates.items():
+        if key in secret_fields and value is None:
+            continue
+        if key in secret_fields and value is not None:
+            value = encrypt_secret(value)
+        setattr(cfg, key, value)
+
+    session.add(cfg)
+    session.commit()
+    session.refresh(cfg)
+    result = _decrypt_app_config(cfg)
+    if result is None:
+        raise ValueError("Failed to decrypt app config")
+    return result
+
+
 def update_transmission_in_container(session: Session, transmission_in_container: bool) -> AppConfig:
     cfg = session.get(AppConfig, 1)
     if not cfg:

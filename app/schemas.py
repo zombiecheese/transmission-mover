@@ -121,6 +121,31 @@ class AppSettingsIn(BaseModel):
     remap_target_prefix: Optional[str] = None
 
 
+class AppSettingsSourceIn(BaseModel):
+    watch_source_kind: str = "local"
+    watch_base_path: Optional[str] = None
+    watch_host: Optional[str] = None
+    watch_port: int = 22
+    watch_username: Optional[str] = None
+    watch_password: Optional[str] = None
+    watch_private_key: Optional[str] = None
+    watch_key_passphrase: Optional[str] = None
+    transfer_mode: str = "move"
+    transfer_schedule: str = "auto"
+    transfer_interval_seconds: int = 300
+    max_parallel_transfers: int = 1
+
+
+class AppSettingsRemapIn(BaseModel):
+    remap_download_path: bool = False
+    remap_source_prefix: Optional[str] = None
+    remap_target_prefix: Optional[str] = None
+
+
+class AppSettingsIgnoredLabelsIn(BaseModel):
+    ignored_labels: str = ""
+
+
 class AppSettingsOut(AppSettingsIn):
     id: int
 
