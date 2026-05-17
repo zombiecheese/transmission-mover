@@ -67,6 +67,12 @@ class TransmissionClient:
                     "status",
                     "percentDone",
                     "isFinished",
+                    "leftUntilDone",
+                    "sizeWhenDone",
+                    "haveValid",
+                    "doneDate",
+                    "error",
+                    "errorString",
                     "downloadDir",
                 ]
             },

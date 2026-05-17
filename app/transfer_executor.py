@@ -172,6 +172,39 @@ def process_torrent(
             "message": f"Failed to move/copy (destination='{destination_name}', base_path={destination_base_path}): {exc}",
         }
 
+# Transmission RPC status values:
+#   0 = stopped, 1 = check-queued, 2 = checking,
+#   3 = download-queued, 4 = downloading,
+#   5 = seed-queued, 6 = seeding
+_READY_STATUSES = {0, 5, 6}
+
+
 def _is_finished(torrent: dict) -> bool:
-    # This logic is duplicated from worker.py for now; can be unified if needed.
-    return bool(torrent.get("isFinished") or torrent.get("percentDone", 0) >= 1.0)
+    """Return True only when the torrent's payload is fully downloaded,
+    verified, and not currently being hashed or fetched.
+
+    `percentDone == 1.0` alone is unreliable: it can be momentarily true while
+    Transmission is verifying (status 1/2) or recovering from an error, which
+    would race a move/copy against an active rehash. `isFinished` in the RPC
+    means "seed-ratio/idle limit reached" -- not "download complete" -- so it
+    cannot be used as a readiness signal either.
+    """
+    if torrent.get("error", 0):
+        return False
+    status = int(torrent.get("status", -1))
+    if status not in _READY_STATUSES:
+        return False
+    left_until_done = torrent.get("leftUntilDone")
+    if left_until_done is not None:
+        if int(left_until_done) > 0:
+            return False
+    else:
+        # Fall back to percentDone if the field is unavailable.
+        if float(torrent.get("percentDone", 0.0)) < 1.0:
+            return False
+    size_when_done = torrent.get("sizeWhenDone")
+    have_valid = torrent.get("haveValid")
+    if size_when_done is not None and have_valid is not None:
+        if int(have_valid) < int(size_when_done):
+            return False
+    return True
