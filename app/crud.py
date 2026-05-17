@@ -5,7 +5,7 @@ from sqlalchemy import desc
 
 from app.models import AppConfig, AuthAuditLog, Destination, LabelRule, MoveLog, TransmissionConfig, WebAuth
 from app.secret_crypto import decrypt_secret, encrypt_secret, is_encrypted_secret
-from app.schemas import AppSettingsIn, DestinationIn, LabelRuleIn, TransmissionConfigIn
+from app.schemas import DestinationIn, LabelRuleIn, TransmissionConfigIn
 
 
 def _decrypt_transmission_config(cfg: Optional[TransmissionConfig]) -> Optional[TransmissionConfig]:
@@ -64,28 +64,6 @@ def get_app_config(session: Session) -> Optional[AppConfig]:
     return _decrypt_app_config(session.get(AppConfig, 1))
 
 
-def upsert_app_config(session: Session, payload: AppSettingsIn) -> AppConfig:
-    cfg = session.get(AppConfig, 1)
-    if not cfg:
-        cfg = AppConfig(id=1)
-
-    updates = payload.model_dump()
-    for key, value in updates.items():
-        if key in {"watch_password", "watch_private_key", "watch_key_passphrase"} and value is None:
-            continue
-        if key in {"watch_password", "watch_private_key", "watch_key_passphrase"}:
-            value = encrypt_secret(value)
-        setattr(cfg, key, value)
-
-    session.add(cfg)
-    session.commit()
-    session.refresh(cfg)
-    result = _decrypt_app_config(cfg)
-    if result is None:
-        raise ValueError("Failed to decrypt app config")
-    return result
-
-
 def update_app_config_fields(session: Session, updates: dict[str, object]) -> AppConfig:
     cfg = session.get(AppConfig, 1)
     if not cfg:
@@ -93,11 +71,13 @@ def update_app_config_fields(session: Session, updates: dict[str, object]) -> Ap
 
     secret_fields = {"watch_password", "watch_private_key", "watch_key_passphrase"}
     for key, value in updates.items():
-        if key in secret_fields and value is None:
-            continue
-        if key in secret_fields and value is not None:
-            value = encrypt_secret(value)
-        setattr(cfg, key, value)
+        if key in secret_fields:
+            if value is None:
+                continue
+            secret_value = value if isinstance(value, str) else str(value)
+            setattr(cfg, key, encrypt_secret(secret_value))
+        else:
+            setattr(cfg, key, value)
 
     session.add(cfg)
     session.commit()

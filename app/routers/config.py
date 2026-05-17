@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from requests import HTTPError, RequestException
@@ -9,12 +11,10 @@ from sqlmodel import Session
 
 from app import crud
 from app.api_serializers import to_safe_app_settings, to_safe_transmission
-from app.api_validators import validate_app_settings_payload
 from app.api_validators import validate_source_app_settings_payload
 from app.db import get_session
 from app.runtime import log_activity_error
 from app.schemas import (
-    AppSettingsIn,
     AppSettingsSafeOut,
     AppSettingsIgnoredLabelsIn,
     AppSettingsRemapIn,
@@ -24,6 +24,7 @@ from app.schemas import (
     TransmissionConfigOut,
     TransmissionContainerModeIn,
 )
+from app.settings import settings
 from app.ssh_utils import (
     connect_ssh_transport,
     detect_remote_transfer_capabilities,
@@ -43,9 +44,9 @@ def get_app_settings(session: Session = Depends(get_session)) -> AppSettingsSafe
     return to_safe_app_settings(cfg)
 
 
-@router.put("/app-settings", response_model=AppSettingsSafeOut)
-def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
-    validate_app_settings_payload(payload)
+@router.put("/app-settings/source", response_model=AppSettingsSafeOut)
+def put_app_settings_source(payload: AppSettingsSourceIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
+    validate_source_app_settings_payload(payload)
 
     if payload.watch_source_kind == "ssh":
         has_remote_destination = any(
@@ -70,6 +71,8 @@ def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_sess
         if effective_watch_key_passphrase is None:
             effective_watch_key_passphrase = existing_cfg.watch_key_passphrase
 
+    updates: dict[str, object] = payload.model_dump()
+
     # Auto-discover transfer methods if remote SSH source is configured
     if payload.watch_source_kind == "ssh" and payload.watch_host and payload.watch_username and payload.watch_base_path:
         transport = None
@@ -92,11 +95,11 @@ def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_sess
             if "sftp" not in available_methods:
                 raise RuntimeError("SFTP subsystem is required for watch source")
 
-            payload.watch_detected_methods = ",".join(available_methods)
-            payload.watch_detected_preferred_method = caps["preferred_method"]
-            payload.watch_detected_sftp_port = caps["service_ports"]["sftp"]
-            payload.watch_detected_scp_port = caps["service_ports"]["scp"]
-            payload.watch_detected_rsync_port = caps["service_ports"]["rsync"]
+            updates["watch_detected_methods"] = ",".join(available_methods)
+            updates["watch_detected_preferred_method"] = caps["preferred_method"]
+            updates["watch_detected_sftp_port"] = caps["service_ports"]["sftp"]
+            updates["watch_detected_scp_port"] = caps["service_ports"]["scp"]
+            updates["watch_detected_rsync_port"] = caps["service_ports"]["rsync"]
         except Exception as exc:
             logger.exception("Failed to auto-discover transfer methods for watch source")
             raise HTTPException(status_code=400, detail=f"Failed to auto-discover transfer methods for watch source: {exc}")
@@ -106,15 +109,15 @@ def put_app_settings(payload: AppSettingsIn, session: Session = Depends(get_sess
                     transport.close()
                 except Exception:
                     pass
+    else:
+        # Clear stale auto-detected metadata when source is local or incomplete.
+        updates["watch_detected_methods"] = ""
+        updates["watch_detected_preferred_method"] = None
+        updates["watch_detected_sftp_port"] = None
+        updates["watch_detected_scp_port"] = None
+        updates["watch_detected_rsync_port"] = None
 
-    cfg = crud.upsert_app_config(session, payload)
-    return to_safe_app_settings(cfg)
-
-
-@router.put("/app-settings/source", response_model=AppSettingsSafeOut)
-def put_app_settings_source(payload: AppSettingsSourceIn, session: Session = Depends(get_session)) -> AppSettingsSafeOut:
-    validate_source_app_settings_payload(payload)
-    cfg = crud.update_app_config_fields(session, payload.model_dump())
+    cfg = crud.update_app_config_fields(session, updates)
     return to_safe_app_settings(cfg)
 
 
@@ -129,6 +132,42 @@ def put_app_settings_ignored_labels(payload: AppSettingsIgnoredLabelsIn, session
     normalized = ",".join(label.strip() for label in payload.ignored_labels.split(",") if label.strip())
     cfg = crud.update_app_config_fields(session, {"ignored_labels": normalized})
     return to_safe_app_settings(cfg)
+
+
+@router.post("/app-settings/reseed-static")
+def reseed_static_assets() -> dict[str, object]:
+    """Restore web UI files from the image-baked default copy, overwriting user edits."""
+    source_dir = Path(settings.default_static_dir)
+    target_dir = Path(settings.static_dir)
+    if not source_dir.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Default static assets directory '{source_dir}' is not available. "
+                "Reseed is only supported when image-baked defaults are present (e.g. inside the Docker image)."
+            ),
+        )
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copied: list[str] = []
+        for src_path in source_dir.rglob("*"):
+            rel = src_path.relative_to(source_dir)
+            dest_path = target_dir / rel
+            if src_path.is_dir():
+                dest_path.mkdir(parents=True, exist_ok=True)
+                continue
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            # Use copy (not copy2) so the destination gets a fresh mtime/ctime.
+            # That guarantees the StaticFiles ETag/Last-Modified differ from any
+            # previously served user-edited version, so browsers re-download.
+            shutil.copy(src_path, dest_path)
+            copied.append(str(rel).replace("\\", "/"))
+    except Exception as exc:
+        logger.exception("Failed to reseed static assets")
+        raise HTTPException(status_code=500, detail=f"Failed to reseed static assets: {exc}") from exc
+
+    logger.info("Reseeded %d static files from %s to %s", len(copied), source_dir, target_dir)
+    return {"ok": True, "files": copied, "count": len(copied)}
 
 
 @router.get("/transmission", response_model=TransmissionConfigOut | None)

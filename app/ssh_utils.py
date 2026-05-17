@@ -188,7 +188,7 @@ def detect_remote_transfer_capabilities(
         available_methods.append("sftp")
 
     preferred_method = available_methods[0] if available_methods else None
-    service_ports = {
+    service_ports: ServicePorts = {
         "sftp": ssh_port if has_sftp else None,
         "scp": ssh_port if has_scp else None,
         "rsync": rsync_daemon_port if rsync_daemon_port is not None else (ssh_port if has_rsync else None),

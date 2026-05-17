@@ -10,6 +10,9 @@ class AppSettings(BaseSettings):
     web_auth_username: str | None = None
     web_auth_password: str | None = None
     secret_encryption_key: str | None = None
+    # Directories used to seed and serve the web UI static assets.
+    static_dir: str = "static"
+    default_static_dir: str = "/opt/default-static"
 
     model_config = SettingsConfigDict(
         env_file=".env",

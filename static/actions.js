@@ -865,6 +865,35 @@ export function initEventHandlers() {
     await saveIgnoredLabels();
   });
 
+  els.reseedStaticBtn?.addEventListener("click", async () => {
+    const confirmed = window.confirm(
+      "This will overwrite the live web UI files (HTML/CSS/JS) with the image-baked defaults. Local edits to static/ will be lost. The page will reload automatically. Continue?"
+    );
+    if (!confirmed) {
+      return;
+    }
+    const btn = els.reseedStaticBtn;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Resetting...";
+    try {
+      const result = await api("/api/app-settings/reseed-static", { method: "POST" });
+      const count = result?.count ?? 0;
+      showMessage(`Reset ${count} web file${count === 1 ? "" : "s"} from defaults. Reloading...`);
+      // Hard reload with a cache-busting query so the browser re-fetches every
+      // JS/CSS module instead of serving the previously cached user-edited copies.
+      setTimeout(() => {
+        const cacheBust = `tm_reseed=${Date.now()}`;
+        const target = `${window.location.pathname}?${cacheBust}${window.location.hash || ""}`;
+        window.location.replace(target);
+      }, 600);
+    } catch (err) {
+      showMessage(err.message, true);
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+
   els.destinationCancelBtn?.addEventListener("click", () => {
     resetDestinationForm();
   });

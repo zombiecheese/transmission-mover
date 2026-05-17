@@ -94,33 +94,6 @@ class TransmissionConfigOut(BaseModel):
     has_password: bool = False
 
 
-class AppSettingsIn(BaseModel):
-    transmission_in_container: bool = False
-    transfer_mode: str = "move"
-    transfer_schedule: str = "auto"
-    transfer_interval_seconds: int = 300
-    max_parallel_transfers: int = 1
-    remove_torrent_on_complete: bool = True
-    watch_source_kind: str = "local"  # local | ssh (remote ssh negotiation)
-    watch_base_path: Optional[str] = None
-    watch_host: Optional[str] = None
-    watch_port: int = 22
-    watch_username: Optional[str] = None
-    watch_password: Optional[str] = None
-    watch_private_key: Optional[str] = None
-    watch_key_passphrase: Optional[str] = None
-    # Auto-detected transfer methods (read-only, set by server)
-    watch_detected_methods: str = ""
-    watch_detected_preferred_method: Optional[str] = None
-    watch_detected_sftp_port: Optional[int] = None
-    watch_detected_scp_port: Optional[int] = None
-    watch_detected_rsync_port: Optional[int] = None
-    ignored_labels: str = ""
-    remap_download_path: bool = False
-    remap_source_prefix: Optional[str] = None
-    remap_target_prefix: Optional[str] = None
-
-
 class AppSettingsSourceIn(BaseModel):
     watch_source_kind: str = "local"
     watch_base_path: Optional[str] = None
@@ -144,10 +117,6 @@ class AppSettingsRemapIn(BaseModel):
 
 class AppSettingsIgnoredLabelsIn(BaseModel):
     ignored_labels: str = ""
-
-
-class AppSettingsOut(AppSettingsIn):
-    id: int
 
 
 class AppSettingsSafeOut(BaseModel):

@@ -4,11 +4,7 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from app import crud
-from app.schemas import AppSettingsIn, AppSettingsSourceIn, DestinationIn, LabelRuleIn
-
-
-def validate_app_settings_payload(payload: AppSettingsIn) -> None:
-    validate_source_app_settings_payload(payload)
+from app.schemas import AppSettingsSourceIn, DestinationIn, LabelRuleIn
 
 
 def validate_source_app_settings_payload(payload: AppSettingsSourceIn) -> None:

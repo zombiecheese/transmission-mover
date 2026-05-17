@@ -101,6 +101,7 @@ export const els = {
   overviewTable: document.getElementById("overviewTable"),
   overviewChip: document.getElementById("overviewChip"),
   runOnceBtn: document.getElementById("runOnceBtn"),
+  reseedStaticBtn: document.getElementById("reseedStaticBtn"),
   toastContainer: document.getElementById("toastContainer"),
 };
 
