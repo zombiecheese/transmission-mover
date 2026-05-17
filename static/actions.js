@@ -159,6 +159,21 @@ async function saveIgnoredLabels() {
   }
 }
 
+async function persistRemapSettings() {
+  const payload = getRemapSettingsPayloadFromForm();
+  try {
+    const data = await api("/api/app-settings/remap", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    state.appSettings = data;
+    updateSourceTypeHint();
+    showMessage("Path remapping saved.");
+  } catch (err) {
+    showMessage(err.message, true);
+  }
+}
+
 export async function refreshDestinations() {
   state.destinations = await api("/api/destinations");
   renderDestinations();
@@ -259,14 +274,19 @@ export function resetRuleForm() {
 
 function syncRuleRemovalControls() {
   const shouldRemove = Boolean(els.ruleRemoveFromClient?.checked);
+  const mode = String(els.ruleTransferMode?.value || "move").toLowerCase();
+  const isMove = mode === "move";
   if (!els.ruleTrashDataOnRemove) {
     return;
   }
   els.ruleTrashDataWrap?.classList.toggle("hidden", !shouldRemove);
-  if (!shouldRemove) {
+  // Trash-data only meaningful in Copy mode (Move already removes data from Transmission).
+  const enabled = shouldRemove && !isMove;
+  if (!enabled) {
     els.ruleTrashDataOnRemove.checked = false;
   }
-  els.ruleTrashDataOnRemove.disabled = !shouldRemove;
+  els.ruleTrashDataOnRemove.disabled = !enabled;
+  els.ruleTrashDataHint?.classList.toggle("hidden", !(shouldRemove && isMove));
 }
 
 function renderRuleEffectiveMethodPreview() {
@@ -621,15 +641,22 @@ export function initEventHandlers() {
 
     const deleteId = target.dataset.deleteDestination;
     if (deleteId) {
+      const numericId = Number(deleteId);
+      const previous = state.destinations.slice();
+      state.destinations = state.destinations.filter((d) => Number(d.id) !== numericId);
+      renderDestinations();
+      updateRuleDestinationOptions();
       try {
         await api(`/api/destinations/${deleteId}`, { method: "DELETE" });
         showMessage("Destination deleted.");
-        if (state.editingDestinationId === Number(deleteId)) {
+        if (state.editingDestinationId === numericId) {
           resetDestinationForm();
         }
-        await refreshDestinations();
         await refreshRules();
       } catch (err) {
+        state.destinations = previous;
+        renderDestinations();
+        updateRuleDestinationOptions();
         showMessage(err.message, true);
       }
       return;
@@ -685,14 +712,21 @@ export function initEventHandlers() {
 
     const deleteId = target.dataset.deleteRule;
     if (deleteId) {
+      const numericId = Number(deleteId);
+      const previous = state.rules.slice();
+      state.rules = state.rules.filter((r) => Number(r.id) !== numericId);
+      renderRules();
+      renderOverview();
       try {
         await api(`/api/rules/${deleteId}`, { method: "DELETE" });
         showMessage("Rule deleted.");
-        if (state.editingRuleId === Number(deleteId)) {
+        if (state.editingRuleId === numericId) {
           resetRuleForm();
         }
-        await refreshRules();
       } catch (err) {
+        state.rules = previous;
+        renderRules();
+        renderOverview();
         showMessage(err.message, true);
       }
       return;
@@ -847,23 +881,19 @@ export function initEventHandlers() {
   });
 
   els.saveRemapBtn?.addEventListener("click", async () => {
-    const payload = getRemapSettingsPayloadFromForm();
-    try {
-      const data = await api("/api/app-settings/remap", {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
-      state.appSettings = data;
-      updateSourceTypeHint();
-      showMessage("Path remapping saved.");
-    } catch (err) {
-      showMessage(err.message, true);
-    }
+    await persistRemapSettings();
   });
 
-  els.saveIgnoredLabelsBtn?.addEventListener("click", async () => {
-    await saveIgnoredLabels();
-  });
+  function attachRemapEnterToSave(input) {
+    input?.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        els.saveRemapBtn?.click();
+      }
+    });
+  }
+  attachRemapEnterToSave(els.remapSourcePrefix);
+  attachRemapEnterToSave(els.remapTargetPrefix);
 
   els.reseedStaticBtn?.addEventListener("click", async () => {
     const confirmed = window.confirm(
@@ -914,15 +944,33 @@ export function initEventHandlers() {
     syncRuleRemovalControls();
   });
 
-  els.addIgnoredLabelBtn?.addEventListener("click", () => {
+  els.ruleTransferMode?.addEventListener("change", () => {
+    syncRuleRemovalControls();
+  });
+
+  els.addIgnoredLabelBtn?.addEventListener("click", async () => {
     const val = els.ignoredLabelsInput?.value?.trim();
     if (!val || state.ignoredLabels.includes(val)) {
       return;
     }
+    const previous = state.ignoredLabels.slice();
     state.ignoredLabels.push(val);
     if (els.ignoredLabelsInput) els.ignoredLabelsInput.value = "";
     renderIgnoredLabels();
     renderOverview();
+    try {
+      const data = await api("/api/app-settings/ignored-labels", {
+        method: "PUT",
+        body: JSON.stringify(getIgnoredLabelsPayload()),
+      });
+      state.appSettings = data;
+      showMessage(`Added ignored label "${val}".`);
+    } catch (err) {
+      state.ignoredLabels = previous;
+      renderIgnoredLabels();
+      renderOverview();
+      showMessage(err.message, true);
+    }
   });
 
   els.ignoredLabelsInput?.addEventListener("keydown", (ev) => {
@@ -1001,4 +1049,22 @@ export function initEventHandlers() {
       showMessage(err.message, true);
     }
   });
+
+  // Initial trash-data hint state and reseed availability probe.
+  syncRuleRemovalControls();
+  probeReseedAvailability();
+}
+
+async function probeReseedAvailability() {
+  if (!els.reseedStaticBtn) {
+    return;
+  }
+  try {
+    const data = await api("/api/app-settings/reseed-static");
+    const available = Boolean(data?.available);
+    els.reseedStaticBtn.disabled = !available;
+    els.reseedStaticHint?.classList.toggle("hidden", available);
+  } catch {
+    // Endpoint not present; leave defaults alone.
+  }
 }

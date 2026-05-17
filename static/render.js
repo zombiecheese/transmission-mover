@@ -72,12 +72,19 @@ export function renderIgnoredLabels() {
   if (!els.ignoredLabelsList) {
     return;
   }
-  if (!state.ignoredLabels.length) {
-    els.ignoredLabelsList.innerHTML = '<span class="muted">No ignored labels configured.</span>';
+  const isEmpty = !state.ignoredLabels.length;
+  if (els.ignoredLabelsEmptyHint) {
+    els.ignoredLabelsEmptyHint.classList.toggle("hidden", !isEmpty);
+  }
+  if (isEmpty) {
+    els.ignoredLabelsList.innerHTML = "";
     return;
   }
   els.ignoredLabelsList.innerHTML = state.ignoredLabels
-    .map((label) => `<button type="button" class="secondary" data-remove-ignored="${escapeHtml(label)}">${escapeHtml(label)} x</button>`)
+    .map((label) => {
+      const safe = escapeHtml(label);
+      return `<span class="label-chip"><span class="label-chip-text">${safe}</span><button type="button" class="chip-remove" data-remove-ignored="${safe}" aria-label="Remove ${safe}" title="Remove ${safe}">&times;</button></span>`;
+    })
     .join("");
 }
 
@@ -126,6 +133,9 @@ export function renderDestinations() {
   if (!els.destinationsTable) {
     return;
   }
+  if (els.destinationsCount) {
+    els.destinationsCount.textContent = state.destinations.length ? String(state.destinations.length) : "";
+  }
   if (!state.destinations.length) {
     els.destinationsTable.innerHTML = '<tr><td colspan="4">No destinations created yet.</td></tr>';
     return;
@@ -155,6 +165,9 @@ export function renderDestinations() {
 export function renderRules() {
   if (!els.rulesTable) {
     return;
+  }
+  if (els.rulesCount) {
+    els.rulesCount.textContent = state.rules.length ? String(state.rules.length) : "";
   }
   if (!state.rules.length) {
     els.rulesTable.innerHTML = '<tr><td colspan="6">No rules created yet.</td></tr>';
@@ -205,6 +218,9 @@ export function renderTorrents() {
   if (!els.torrentsTable) {
     return;
   }
+  if (els.labelManagementCount) {
+    els.labelManagementCount.textContent = state.torrents.length ? String(state.torrents.length) : "";
+  }
   if (!state.torrents.length) {
     els.torrentsTable.innerHTML = '<tr><td colspan="5">No torrents found.</td></tr>';
     return;
@@ -254,6 +270,9 @@ export function renderOverview() {
     if (els.overviewChip) {
       els.overviewChip.textContent = "0 visible";
     }
+    if (els.overviewCount) {
+      els.overviewCount.textContent = "";
+    }
     return;
   }
 
@@ -290,6 +309,9 @@ export function renderOverview() {
   if (els.overviewChip) {
     els.overviewChip.textContent = `${torrents.length} visible`;
   }
+  if (els.overviewCount) {
+    els.overviewCount.textContent = String(torrents.length);
+  }
 }
 
 export function renderLogs(logs) {
@@ -318,6 +340,10 @@ export function renderLogs(logs) {
 
   const recentRows = Array.isArray(logs) ? logs : [];
   const rows = [...activeRows, ...recentRows];
+
+  if (els.activityLogCount) {
+    els.activityLogCount.textContent = rows.length ? String(rows.length) : "";
+  }
 
   if (rows.length === 0) {
     els.logsTable.innerHTML = '<tr><td colspan="6">No activity yet.</td></tr>';

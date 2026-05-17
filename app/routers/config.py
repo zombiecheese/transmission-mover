@@ -134,6 +134,12 @@ def put_app_settings_ignored_labels(payload: AppSettingsIgnoredLabelsIn, session
     return to_safe_app_settings(cfg)
 
 
+@router.get("/app-settings/reseed-static")
+def reseed_static_available() -> dict[str, bool]:
+    """Report whether image-baked default static assets are available for reseed."""
+    return {"available": Path(settings.default_static_dir).is_dir()}
+
+
 @router.post("/app-settings/reseed-static")
 def reseed_static_assets() -> dict[str, object]:
     """Restore web UI files from the image-baked default copy, overwriting user edits."""

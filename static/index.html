@@ -17,18 +17,28 @@
     <div class="bg-glow bg-glow-b"></div>
 
     <main class="layout">
-      <header class="hero">
-        <h1>Transmission Mover</h1>
-        <p>Map labels to destinations and auto-move completed torrents.</p>
+      <header class="hero hero-compact">
+        <div class="hero-title">
+          <h1>Transmission Mover</h1>
+          <p class="hero-tagline">Map labels to destinations and auto-move completed torrents.</p>
+        </div>
+        <label class="theme-picker" for="themeMode">
+          Theme
+          <select id="themeMode" aria-label="Theme mode">
+            <option value="auto">Auto</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
       </header>
 
       <section class="panel overview-panel">
         <div class="overview-header">
-          <h2>Torrents</h2>
+          <h2>Torrents <span id="overviewCount" class="row-count" aria-live="polite"></span></h2>
           <span id="overviewChip" class="chip"></span>
-        </div>
-        <div class="overview-actions">
-          <button id="runOnceBtn" class="secondary overview-run-now-btn">Run All Now</button>
+          <div class="overview-header-actions">
+            <button id="runOnceBtn" class="secondary overview-run-now-btn">Run All Now</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -50,14 +60,6 @@
       </section>
 
       <div class="section-launch-row">
-        <label class="theme-picker" for="themeMode">
-          Theme
-          <select id="themeMode" aria-label="Theme mode">
-            <option value="auto">Auto</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
         <button
           type="button"
           id="labelRulesToggleBtn"
@@ -106,8 +108,8 @@
           type="button"
           id="activityLogToggleBtn"
           class="secondary icon-button"
-          aria-label="Hide activity log"
-          aria-expanded="true"
+          aria-label="Show activity log"
+          aria-expanded="false"
           aria-controls="activityLogPanel"
         >
           <span class="icon-glyph" aria-hidden="true">&#9776;</span>
@@ -127,12 +129,12 @@
       <section id="settingsPanel" class="panel settings-panel hidden">
         <h2>Settings</h2>
         <div id="settingsMenu" class="settings-menu" role="tablist" aria-label="Settings sections">
-          <button type="button" class="settings-tab active" data-settings-view="transmission">Transmission</button>
-          <button type="button" class="settings-tab secondary" data-settings-view="general">Source</button>
+          <button type="button" class="settings-tab active" data-settings-view="general">Source</button>
+          <button type="button" class="settings-tab secondary" data-settings-view="transmission">Transmission</button>
           <button type="button" class="settings-tab secondary" data-settings-view="security">Security</button>
         </div>
 
-        <div id="settingsGeneralView" class="settings-view hidden">
+        <div id="settingsGeneralView" class="settings-view">
           <h3>Source</h3>
           <form id="generalSettingsForm" class="grid-form">
             <fieldset class="settings-fieldset">
@@ -154,11 +156,6 @@
               </label>
 
               <p class="panel-subtitle">For local watch sources, leave base path blank to use Transmission's reported download directory.</p>
-
-              <label>
-                Max parallel transfers
-                <input name="max_parallel_transfers" type="number" min="1" max="8" step="1" value="3" />
-              </label>
 
               <div id="watchSourceSftpFields" class="sftp-fields hidden">
                 <label>
@@ -192,13 +189,23 @@
               </div>
             </fieldset>
 
+            <fieldset class="settings-fieldset">
+              <legend>Performance</legend>
+              <p class="panel-subtitle">Global concurrency limit. Applies to all rules regardless of source.</p>
+              <label>
+                Max parallel transfers
+                <input name="max_parallel_transfers" type="number" min="1" max="8" step="1" value="3" />
+              </label>
+            </fieldset>
+
             <div id="generalSettingsActions" class="row-actions">
-              <button type="submit" id="generalSettingsSubmitBtn">Save Source</button>
+              <button type="submit" id="generalSettingsSubmitBtn">Save</button>
+              <p id="generalSettingsGatedHint" class="gated-hint hidden">Run a successful Test Connection above to enable Save.</p>
             </div>
           </form>
         </div>
 
-        <div id="settingsTransmissionView" class="settings-view">
+        <div id="settingsTransmissionView" class="settings-view hidden">
           <h3>Transmission</h3>
           <form id="transmissionForm" class="grid-form">
             <label>
@@ -229,14 +236,17 @@
               <input name="transmission_in_container" id="transmissionInContainer" type="checkbox" />
               Transmission is running in a container
             </label>
-            <p class="panel-subtitle">If enabled, use either a shared mounted path in Watch Location or Remote SSH negotiation to access completed data.</p>
+            <p class="panel-subtitle">If enabled, use either a shared mounted path in Watch Location or Remote SSH negotiation to access completed data. When the container reports paths that differ from what this app sees, enable <strong>Container Path Remapping</strong> in the section below.</p>
             <div class="row-actions stack-actions">
               <button type="button" id="testTransmissionBtn" class="secondary">Test Connection</button>
               <button type="submit" id="transmissionSubmitBtn" disabled>Save</button>
+              <p id="transmissionGatedHint" class="gated-hint">Run a successful Test Connection to enable Save.</p>
             </div>
           </form>
 
-          <div id="remapForm" class="grid-form hidden" style="margin-top:8px">
+          <hr class="section-divider" />
+
+          <div id="remapForm" class="grid-form hidden">
             <fieldset class="settings-fieldset">
               <legend>Container Path Remapping</legend>
               <p class="panel-subtitle">Enable this when Transmission runs in a separate container and its reported download paths differ from the paths visible here. Saved independently of the Transmission settings above.</p>
@@ -260,16 +270,16 @@
             </fieldset>
           </div>
 
+          <hr class="section-divider" />
+
           <fieldset class="settings-fieldset">
             <legend>Ignored Labels</legend>
-            <p class="panel-subtitle">Torrents carrying any of these labels will be hidden from the overview. Click an entry's <strong>x</strong> to remove it immediately, or use Save Ignored Labels to commit additions. Saved independently of the Transmission settings above.</p>
+            <p class="panel-subtitle">Torrents carrying any of these labels will be hidden from the overview. Saved independently of the Transmission settings above.</p>
             <div id="ignoredLabelsList" class="label-chips"></div>
+            <p id="ignoredLabelsEmptyHint" class="panel-subtitle hidden">Add a label below to hide its torrents from the overview.</p>
             <div class="row-inline-actions">
               <input id="ignoredLabelsInput" list="knownLabels" placeholder="label name" />
               <button type="button" id="addIgnoredLabelBtn" class="secondary">Add</button>
-            </div>
-            <div class="row-actions">
-              <button type="button" id="saveIgnoredLabelsBtn" class="secondary">Save Ignored Labels</button>
             </div>
           </fieldset>
         </div>
@@ -305,13 +315,14 @@
             </p>
             <div class="row-actions">
               <button type="button" id="reseedStaticBtn" class="secondary">Reset Web Files</button>
+              <p id="reseedStaticHint" class="gated-hint hidden">Image-baked defaults were not found on this host, so reset is unavailable.</p>
             </div>
           </fieldset>
         </div>
       </section>
 
       <section id="labelManagementPanel" class="panel hidden">
-          <h2>Current Torrents</h2>
+          <h2>Current Torrents <span id="labelManagementCount" class="row-count"></span></h2>
           <p class="panel-subtitle">Loads after a successful connection test. Assign labels to existing torrents here.</p>
           <div class="row-actions">
             <button type="button" id="refreshTorrentsBtn" class="secondary">Refresh Torrents</button>
@@ -338,7 +349,7 @@
       </section>
 
       <section id="destinationsPanel" class="panel hidden">
-          <h2>Destinations</h2>
+          <h2>Destinations <span id="destinationsCount" class="row-count"></span></h2>
           <form id="destinationForm" class="grid-form">
             <label>
               Name
@@ -401,6 +412,7 @@
               <button type="button" id="testDestinationBtn" class="secondary">Test Connection</button>
               <button type="submit" id="destinationSubmitBtn" disabled>Create Destination</button>
               <button type="button" id="destinationCancelBtn" class="secondary hidden">Cancel</button>
+              <p id="destinationGatedHint" class="gated-hint hidden">Run a successful Test Connection to enable Save.</p>
             </div>
           </form>
 
@@ -420,53 +432,95 @@
       </section>
 
       <section id="labelRulesPanel" class="panel hidden">
-          <h2>Label Rules</h2>
-          <form id="ruleForm" class="inline-form">
-            <select id="ruleLabelSelect" name="label" required>
-              <option value="">-- select label --</option>
-            </select>
-            <select name="destination_id" id="ruleDestinationSelect" required></select>
-            <select name="transfer_mode" id="ruleTransferMode" required>
-              <option value="move">Move data</option>
-              <option value="copy">Copy data</option>
-            </select>
-            <select name="parallelism_mode" id="ruleParallelismMode" required>
-              <option value="sequential">Sequential</option>
-              <option value="parallel">Parallel</option>
-            </select>
-            <select name="conflict_policy" id="ruleConflictPolicy" required>
-              <option value="overwrite">Overwrite on conflict</option>
-              <option value="rename">Rename on conflict</option>
-              <option value="skip">Skip on conflict</option>
-            </select>
-            <select name="transfer_schedule" id="ruleTransferSchedule" required>
-              <option value="auto">Auto</option>
-              <option value="interval">Interval</option>
-              <option value="manual">Manual</option>
-            </select>
-            <input
-              type="number"
-              min="10"
-              step="1"
-              name="transfer_interval_seconds"
-              id="ruleTransferIntervalSeconds"
-              value="300"
-              placeholder="Interval (seconds)"
-            />
-            <label class="check-label compact">
-              <input type="checkbox" name="enabled" checked />
-              Enabled
-            </label>
-            <label class="check-label compact">
-              <input type="checkbox" name="remove_from_client" id="ruleRemoveFromClient" checked />
-              Remove from client
-            </label>
-            <label class="check-label compact" id="ruleTrashDataWrap">
-              <input type="checkbox" name="trash_data_on_remove" id="ruleTrashDataOnRemove" />
-              Trash data
-            </label>
-            <button type="submit" id="ruleSubmitBtn">Add Rule</button>
-            <button type="button" id="ruleCancelBtn" class="secondary hidden">Cancel</button>
+          <h2>Label Rules <span id="rulesCount" class="row-count"></span></h2>
+          <form id="ruleForm" class="rule-form">
+            <div class="rule-form-grid">
+              <fieldset class="settings-fieldset rule-fieldset">
+                <legend>Match</legend>
+                <label>
+                  Label
+                  <select id="ruleLabelSelect" name="label" required>
+                    <option value="">-- select label --</option>
+                  </select>
+                </label>
+              </fieldset>
+
+              <fieldset class="settings-fieldset rule-fieldset">
+                <legend>Action</legend>
+                <label>
+                  Destination
+                  <select name="destination_id" id="ruleDestinationSelect" required></select>
+                </label>
+                <label>
+                  Transfer mode
+                  <select name="transfer_mode" id="ruleTransferMode" required>
+                    <option value="move">Move data</option>
+                    <option value="copy">Copy data</option>
+                  </select>
+                </label>
+                <label>
+                  On conflict
+                  <select name="conflict_policy" id="ruleConflictPolicy" required>
+                    <option value="overwrite">Overwrite</option>
+                    <option value="rename">Rename</option>
+                    <option value="skip">Skip</option>
+                  </select>
+                </label>
+              </fieldset>
+
+              <fieldset class="settings-fieldset rule-fieldset">
+                <legend>Scheduling</legend>
+                <label>
+                  Execution
+                  <select name="parallelism_mode" id="ruleParallelismMode" required>
+                    <option value="sequential">Sequential</option>
+                    <option value="parallel">Parallel</option>
+                  </select>
+                </label>
+                <label>
+                  Schedule
+                  <select name="transfer_schedule" id="ruleTransferSchedule" required>
+                    <option value="auto">Auto</option>
+                    <option value="interval">Interval</option>
+                    <option value="manual">Manual</option>
+                  </select>
+                </label>
+                <label>
+                  Interval (seconds)
+                  <input
+                    type="number"
+                    min="10"
+                    step="1"
+                    name="transfer_interval_seconds"
+                    id="ruleTransferIntervalSeconds"
+                    value="300"
+                    placeholder="300"
+                  />
+                </label>
+              </fieldset>
+
+              <fieldset class="settings-fieldset rule-fieldset">
+                <legend>Flags</legend>
+                <label class="check-label compact">
+                  <input type="checkbox" name="enabled" checked />
+                  Enabled
+                </label>
+                <label class="check-label compact">
+                  <input type="checkbox" name="remove_from_client" id="ruleRemoveFromClient" checked />
+                  Remove from client after transfer
+                </label>
+                <label class="check-label compact" id="ruleTrashDataWrap">
+                  <input type="checkbox" name="trash_data_on_remove" id="ruleTrashDataOnRemove" />
+                  Send Transmission's data copy to trash on removal
+                </label>
+                <p id="ruleTrashDataHint" class="panel-subtitle hidden">Only meaningful for Copy mode (Move already takes the data away from Transmission).</p>
+              </fieldset>
+            </div>
+
+            <div class="row-actions">
+              <button type="submit" id="ruleSubmitBtn">Add Rule</button>
+              <button type="button" id="ruleCancelBtn" class="secondary hidden">Cancel</button>
+            </div>
           </form>
           <p id="ruleEffectiveMethodInfo" class="panel-subtitle">Effective method: select a destination to preview.</p>
 
@@ -487,8 +541,8 @@
           </div>
       </section>
 
-      <section class="panel" id="activityLogPanel">
-        <h2>Live Activity Log</h2>
+      <section class="panel hidden" id="activityLogPanel">
+        <h2>Live Activity Log <span id="activityLogCount" class="row-count"></span></h2>
         <p class="panel-subtitle">Shows in-flight transfers and recent events from tests, connections, and moves.</p>
         <div class="row-actions">
           <button type="button" id="clearLogsBtn" class="secondary" aria-label="Clear activity log">Clear Log</button>

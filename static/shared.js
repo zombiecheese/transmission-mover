@@ -101,7 +101,7 @@ export function initSettingsMenu() {
   setDestinationsPanelOpen(false);
   setLabelRulesPanelOpen(false);
   setActivityLogPanelOpen(false);
-  setSettingsView("transmission");
+  setSettingsView("general");
 
   els.settingsToggleBtn?.addEventListener("click", () => {
     const isHidden = els.settingsPanel?.classList.contains("hidden");
@@ -400,12 +400,14 @@ export function updateTestGatedButtons() {
   if (els.transmissionSubmitBtn) {
     els.transmissionSubmitBtn.disabled = !transmissionReady;
   }
+  els.transmissionGatedHint?.classList.toggle("hidden", transmissionReady);
 
   const destinationSignature = buildTestSignature(getDestinationTestPayloadFromForm());
   const destinationReady = state.testApprovals.destinationSftp === destinationSignature;
   if (els.destinationSubmitBtn) {
     els.destinationSubmitBtn.disabled = !destinationReady;
   }
+  els.destinationGatedHint?.classList.toggle("hidden", destinationReady);
 
   const watchSourceSignature = buildTestSignature(getWatchSourceTestPayloadFromForm());
   const watchSourceRequiresTest = els.watchSourceKind?.value === "ssh";
@@ -413,4 +415,5 @@ export function updateTestGatedButtons() {
   if (els.generalSettingsSubmitBtn) {
     els.generalSettingsSubmitBtn.disabled = !watchSourceReady;
   }
+  els.generalSettingsGatedHint?.classList.toggle("hidden", watchSourceReady);
 }

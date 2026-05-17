@@ -80,6 +80,37 @@
         border: 1px solid var(--line);
         padding: 0 12px;
         font: inherit;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      .password-wrap {
+        position: relative;
+      }
+
+      .password-wrap input {
+        padding-right: 80px;
+      }
+
+      .password-toggle {
+        position: absolute;
+        top: 50%;
+        right: 6px;
+        transform: translateY(-50%);
+        height: 32px;
+        width: auto;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 600;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+
+      .password-toggle:hover {
+        color: var(--ink);
       }
 
       button {
@@ -144,7 +175,10 @@
         </label>
         <label>
           Password
-          <input id="password" type="password" autocomplete="current-password" required />
+          <span class="password-wrap">
+            <input id="password" type="password" autocomplete="current-password" required />
+            <button type="button" class="password-toggle" id="passwordToggle" aria-label="Show password" aria-pressed="false">Show</button>
+          </span>
         </label>
         <button type="submit" id="loginBtn">Log In</button>
         <div id="loginError" class="error" aria-live="polite"></div>
@@ -180,6 +214,33 @@
       const password = document.getElementById("password");
       const errorEl = document.getElementById("loginError");
       const loginBtn = document.getElementById("loginBtn");
+      const passwordToggle = document.getElementById("passwordToggle");
+
+      // Auto-focus the username field on load (skip if browser autofilled password).
+      window.requestAnimationFrame(() => {
+        if (!username.value) {
+          username.focus();
+        } else if (!password.value) {
+          password.focus();
+        }
+      });
+
+      // Clear stale error message as soon as the user edits either field.
+      const clearError = () => {
+        if (errorEl.textContent) {
+          errorEl.textContent = "";
+        }
+      };
+      username.addEventListener("input", clearError);
+      password.addEventListener("input", clearError);
+
+      passwordToggle?.addEventListener("click", () => {
+        const showing = password.type === "text";
+        password.type = showing ? "password" : "text";
+        passwordToggle.textContent = showing ? "Show" : "Hide";
+        passwordToggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+        passwordToggle.setAttribute("aria-pressed", showing ? "false" : "true");
+      });
 
       form.addEventListener("submit", async (ev) => {
         ev.preventDefault();
