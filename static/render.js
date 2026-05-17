@@ -265,6 +265,7 @@ export function renderOverview() {
       const moveTarget = rule?.destination_name || "No matching rule";
       const ruleMode = String(rule?.transfer_mode || "move").toLowerCase();
       const pct = Math.round((Number(torrent.percent_done || 0) * 100) * 10) / 10;
+      const isComplete = Number(torrent.percent_done || 0) >= 1;
       const active = (state.activeTransfers || []).find((a) => Number(a.torrent_id) === Number(torrent.id));
       const destination = rule ? destinationsById.get(Number(rule.destination_id)) : null;
       const computedMethod = rule ? computeRuleEffectiveMethod(rule, destination) : "-";
@@ -280,7 +281,7 @@ export function renderOverview() {
           <td>${escapeHtml(labels.join(", ") || "-")}</td>
           <td>${escapeHtml(moveTarget)}</td>
           <td>${escapeHtml(moveStatus)}</td>
-          <td><button type="button" class="secondary" data-transfer-now="${torrent.id}">Transfer now</button></td>
+          <td><button type="button" class="secondary" data-transfer-now="${torrent.id}" ${isComplete ? "" : "disabled"} title="${isComplete ? "Transfer completed torrent now" : "Torrent is still downloading"}">Transfer now</button></td>
         </tr>
       `;
     })
