@@ -66,10 +66,24 @@ export function setSettingsPanelOpen(isOpen) {
   }
 }
 
-export function setMoveRulesPanelOpen(isOpen) {
-  els.moveRulesPanel?.classList.toggle("hidden", !isOpen);
-  if (els.moveRulesToggleBtn) {
-    els.moveRulesToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+export function setLabelManagementPanelOpen(isOpen) {
+  els.labelManagementPanel?.classList.toggle("hidden", !isOpen);
+  if (els.labelManagementToggleBtn) {
+    els.labelManagementToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  }
+}
+
+export function setDestinationsPanelOpen(isOpen) {
+  els.destinationsPanel?.classList.toggle("hidden", !isOpen);
+  if (els.destinationsToggleBtn) {
+    els.destinationsToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  }
+}
+
+export function setLabelRulesPanelOpen(isOpen) {
+  els.labelRulesPanel?.classList.toggle("hidden", !isOpen);
+  if (els.labelRulesToggleBtn) {
+    els.labelRulesToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
   }
 }
 
@@ -83,7 +97,9 @@ export function setActivityLogPanelOpen(isOpen) {
 
 export function initSettingsMenu() {
   setSettingsPanelOpen(false);
-  setMoveRulesPanelOpen(false);
+  setLabelManagementPanelOpen(false);
+  setDestinationsPanelOpen(false);
+  setLabelRulesPanelOpen(false);
   setActivityLogPanelOpen(true);
   setSettingsView("transmission");
 
@@ -92,9 +108,19 @@ export function initSettingsMenu() {
     setSettingsPanelOpen(Boolean(isHidden));
   });
 
-  els.moveRulesToggleBtn?.addEventListener("click", () => {
-    const isHidden = els.moveRulesPanel?.classList.contains("hidden");
-    setMoveRulesPanelOpen(Boolean(isHidden));
+  els.labelManagementToggleBtn?.addEventListener("click", () => {
+    const isHidden = els.labelManagementPanel?.classList.contains("hidden");
+    setLabelManagementPanelOpen(Boolean(isHidden));
+  });
+
+  els.destinationsToggleBtn?.addEventListener("click", () => {
+    const isHidden = els.destinationsPanel?.classList.contains("hidden");
+    setDestinationsPanelOpen(Boolean(isHidden));
+  });
+
+  els.labelRulesToggleBtn?.addEventListener("click", () => {
+    const isHidden = els.labelRulesPanel?.classList.contains("hidden");
+    setLabelRulesPanelOpen(Boolean(isHidden));
   });
 
   els.activityLogToggleBtn?.addEventListener("click", () => {

@@ -60,14 +60,36 @@
         </label>
         <button
           type="button"
-          id="moveRulesToggleBtn"
+          id="labelManagementToggleBtn"
           class="secondary icon-button"
-          aria-label="Open move rules"
+          aria-label="Open label management"
           aria-expanded="false"
-          aria-controls="moveRulesPanel"
+          aria-controls="labelManagementPanel"
+        >
+          <span class="icon-glyph" aria-hidden="true">&#127991;</span>
+          <span>Label Management</span>
+        </button>
+        <button
+          type="button"
+          id="destinationsToggleBtn"
+          class="secondary icon-button"
+          aria-label="Open destinations"
+          aria-expanded="false"
+          aria-controls="destinationsPanel"
+        >
+          <span class="icon-glyph" aria-hidden="true">&#128194;</span>
+          <span>Destinations</span>
+        </button>
+        <button
+          type="button"
+          id="labelRulesToggleBtn"
+          class="secondary icon-button"
+          aria-label="Open label rules"
+          aria-expanded="false"
+          aria-controls="labelRulesPanel"
         >
           <span class="icon-glyph" aria-hidden="true">&#8644;</span>
-          <span>Move Rules</span>
+          <span>Label Rules</span>
         </button>
         <button
           type="button"
@@ -274,8 +296,7 @@
         </div>
       </section>
 
-      <div id="moveRulesPanel" class="stacked-panels hidden">
-        <section class="panel">
+      <section id="labelManagementPanel" class="panel hidden">
           <h2>Current Torrents</h2>
           <p class="panel-subtitle">Loads after a successful connection test. Assign labels to existing torrents here.</p>
           <div class="row-actions">
@@ -300,10 +321,10 @@
               </tbody>
             </table>
           </div>
-        </section>
+      </section>
 
-        <section class="panel">
-          <h2>Add Destination</h2>
+      <section id="destinationsPanel" class="panel hidden">
+          <h2>Destinations</h2>
           <form id="destinationForm" class="grid-form">
             <label>
               Name
@@ -382,9 +403,9 @@
               <tbody id="destinationsTable"></tbody>
             </table>
           </div>
-        </section>
+      </section>
 
-        <section class="panel">
+      <section id="labelRulesPanel" class="panel hidden">
           <h2>Label Rules</h2>
           <form id="ruleForm" class="inline-form">
             <select id="ruleLabelSelect" name="label" required>
@@ -450,9 +471,7 @@
               <tbody id="rulesTable"></tbody>
             </table>
           </div>
-        </section>
-
-      </div>
+      </section>
 
       <section class="panel" id="activityLogPanel">
         <h2>Live Activity Log</h2>
