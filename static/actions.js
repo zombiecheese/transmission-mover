@@ -105,7 +105,7 @@ export async function refreshAppSettings() {
   els.watchSourceKind.value = normalizedWatchSourceKind;
   els.generalSettingsForm.watch_base_path.value = cfg.watch_base_path || "";
   if (els.generalSettingsForm.max_parallel_transfers) {
-    els.generalSettingsForm.max_parallel_transfers.value = String(Number(cfg.max_parallel_transfers || 1));
+    els.generalSettingsForm.max_parallel_transfers.value = String(Number(cfg.max_parallel_transfers || 3));
   }
   els.generalSettingsForm.watch_host.value = cfg.watch_host || "";
   els.generalSettingsForm.watch_port.value = cfg.watch_port || 22;
@@ -932,7 +932,7 @@ export function initEventHandlers() {
     }
   });
 
-  els.ignoredLabelsList?.addEventListener("click", (ev) => {
+  els.ignoredLabelsList?.addEventListener("click", async (ev) => {
     const target = ev.target;
     if (!(target instanceof HTMLElement)) {
       return;
@@ -941,9 +941,23 @@ export function initEventHandlers() {
     if (!label) {
       return;
     }
+    const previous = state.ignoredLabels.slice();
     state.ignoredLabels = state.ignoredLabels.filter((l) => l !== label);
     renderIgnoredLabels();
     renderOverview();
+    try {
+      const data = await api("/api/app-settings/ignored-labels", {
+        method: "PUT",
+        body: JSON.stringify(getIgnoredLabelsPayload()),
+      });
+      state.appSettings = data;
+      showMessage(`Removed ignored label "${label}".`);
+    } catch (err) {
+      state.ignoredLabels = previous;
+      renderIgnoredLabels();
+      renderOverview();
+      showMessage(err.message, true);
+    }
   });
 
   els.changePasswordForm?.addEventListener("submit", async (ev) => {

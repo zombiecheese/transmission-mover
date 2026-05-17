@@ -51,7 +51,7 @@ def _run_migrations() -> None:
             ("appconfig", "transmission_in_container", "INTEGER DEFAULT 0"),
             ("appconfig", "transfer_schedule", "TEXT DEFAULT 'auto'"),
             ("appconfig", "transfer_interval_seconds", "INTEGER DEFAULT 300"),
-            ("appconfig", "max_parallel_transfers", "INTEGER DEFAULT 1"),
+            ("appconfig", "max_parallel_transfers", "INTEGER DEFAULT 3"),
             ("labelrule", "transfer_mode", "TEXT DEFAULT 'move'"),
             ("labelrule", "transfer_schedule", "TEXT DEFAULT 'auto'"),
             ("labelrule", "transfer_interval_seconds", "INTEGER DEFAULT 300"),

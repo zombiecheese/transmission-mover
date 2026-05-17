@@ -58,7 +58,6 @@ export const els = {
   testTransmissionBtn: document.getElementById("testTransmissionBtn"),
   testDestinationBtn: document.getElementById("testDestinationBtn"),
   testWatchSourceBtn: document.getElementById("testWatchSourceBtn"),
-  watchSourceSaveBtn: document.getElementById("watchSourceSaveBtn"),
   generalSettingsSubmitBtn: document.getElementById("generalSettingsSubmitBtn"),
   generalSettingsActions: document.getElementById("generalSettingsActions"),
   destinationSubmitBtn: document.getElementById("destinationSubmitBtn"),

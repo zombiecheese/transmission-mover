@@ -239,7 +239,7 @@ export function getSourceSettingsPayloadFromForm() {
   const payload = formToObject(els.generalSettingsForm);
   payload.transfer_schedule = payload.transfer_schedule || "auto";
   payload.transfer_interval_seconds = Number(payload.transfer_interval_seconds || 300);
-  payload.max_parallel_transfers = Math.max(1, Math.min(8, Number(payload.max_parallel_transfers || 1)));
+  payload.max_parallel_transfers = Math.max(1, Math.min(8, Number(payload.max_parallel_transfers || 3)));
   payload.watch_port = Number(payload.watch_port || 22);
   return payload;
 }
@@ -412,8 +412,5 @@ export function updateTestGatedButtons() {
   const watchSourceReady = !watchSourceRequiresTest || state.testApprovals.watchSourceSftp === watchSourceSignature;
   if (els.generalSettingsSubmitBtn) {
     els.generalSettingsSubmitBtn.disabled = !watchSourceReady;
-  }
-  if (els.watchSourceSaveBtn) {
-    els.watchSourceSaveBtn.disabled = !watchSourceReady;
   }
 }

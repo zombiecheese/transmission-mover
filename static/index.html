@@ -60,6 +60,17 @@
         </label>
         <button
           type="button"
+          id="labelRulesToggleBtn"
+          class="secondary icon-button"
+          aria-label="Open label rules"
+          aria-expanded="false"
+          aria-controls="labelRulesPanel"
+        >
+          <span class="icon-glyph" aria-hidden="true">&#8644;</span>
+          <span>Label Rules</span>
+        </button>
+        <button
+          type="button"
           id="labelManagementToggleBtn"
           class="secondary icon-button"
           aria-label="Open label management"
@@ -79,17 +90,6 @@
         >
           <span class="icon-glyph" aria-hidden="true">&#128194;</span>
           <span>Destinations</span>
-        </button>
-        <button
-          type="button"
-          id="labelRulesToggleBtn"
-          class="secondary icon-button"
-          aria-label="Open label rules"
-          aria-expanded="false"
-          aria-controls="labelRulesPanel"
-        >
-          <span class="icon-glyph" aria-hidden="true">&#8644;</span>
-          <span>Label Rules</span>
         </button>
         <button
           type="button"
@@ -153,12 +153,12 @@
                 <input name="watch_base_path" placeholder="/watch or /volume1/downloads/completed" />
               </label>
 
+              <p class="panel-subtitle">For local watch sources, leave base path blank to use Transmission's reported download directory.</p>
+
               <label>
                 Max parallel transfers
-                <input name="max_parallel_transfers" type="number" min="1" max="8" step="1" value="1" />
+                <input name="max_parallel_transfers" type="number" min="1" max="8" step="1" value="3" />
               </label>
-
-              <p class="panel-subtitle">For local watch sources, leave base path blank to use Transmission's reported download directory.</p>
 
               <div id="watchSourceSftpFields" class="sftp-fields hidden">
                 <label>
@@ -188,7 +188,6 @@
                 <div class="row-actions stack-actions">
                   <button type="button" id="testWatchSourceBtn" class="secondary">Test Connection</button>
                   <p id="watchSourceCapabilityInfo" class="panel-subtitle">Run Test Connection to detect source transfer methods.</p>
-                  <button type="submit" id="watchSourceSaveBtn" disabled>Save Source</button>
                 </div>
               </div>
             </fieldset>
@@ -231,46 +230,48 @@
               Transmission is running in a container
             </label>
             <p class="panel-subtitle">If enabled, use either a shared mounted path in Watch Location or Remote SSH negotiation to access completed data.</p>
-            <div id="remapForm" class="grid-form hidden" style="margin-top:8px">
-              <fieldset class="settings-fieldset">
-                <legend>Container Path Remapping</legend>
-                <p class="panel-subtitle">Enable this when Transmission runs in a separate container and its reported download paths differ from the paths visible here.</p>
-                <label class="check-label">
-                  <input type="checkbox" id="remapDownloadPath" name="remap_download_path" />
-                  Remap Transmission download paths
-                </label>
-                <div id="remapPathFields" class="hidden">
-                  <label>
-                    Transmission reports path starting with
-                    <input name="remap_source_prefix" placeholder="/downloads/complete" />
-                  </label>
-                  <label>
-                    Replace with (path as seen in this container)
-                    <input name="remap_target_prefix" placeholder="/watch" />
-                  </label>
-                </div>
-                <div class="row-actions">
-                  <button type="button" id="saveRemapBtn">Save Path Remapping</button>
-                </div>
-              </fieldset>
-            </div>
             <div class="row-actions stack-actions">
               <button type="button" id="testTransmissionBtn" class="secondary">Test Connection</button>
               <button type="submit" id="transmissionSubmitBtn" disabled>Save</button>
             </div>
+          </form>
+
+          <div id="remapForm" class="grid-form hidden" style="margin-top:8px">
             <fieldset class="settings-fieldset">
-              <legend>Ignored Labels</legend>
-              <p class="panel-subtitle">Torrents carrying any of these labels will be hidden from the overview.</p>
-              <div id="ignoredLabelsList" class="label-chips"></div>
-              <div class="row-inline-actions">
-                <input id="ignoredLabelsInput" list="knownLabels" placeholder="label name" />
-                <button type="button" id="addIgnoredLabelBtn" class="secondary">Add</button>
+              <legend>Container Path Remapping</legend>
+              <p class="panel-subtitle">Enable this when Transmission runs in a separate container and its reported download paths differ from the paths visible here. Saved independently of the Transmission settings above.</p>
+              <label class="check-label">
+                <input type="checkbox" id="remapDownloadPath" name="remap_download_path" />
+                Remap Transmission download paths
+              </label>
+              <div id="remapPathFields" class="hidden">
+                <label>
+                  Transmission reports path starting with
+                  <input name="remap_source_prefix" placeholder="/downloads/complete" />
+                </label>
+                <label>
+                  Replace with (path as seen in this container)
+                  <input name="remap_target_prefix" placeholder="/watch" />
+                </label>
               </div>
               <div class="row-actions">
-                <button type="button" id="saveIgnoredLabelsBtn" class="secondary">Save Ignored Labels</button>
+                <button type="button" id="saveRemapBtn">Save Path Remapping</button>
               </div>
             </fieldset>
-          </form>
+          </div>
+
+          <fieldset class="settings-fieldset">
+            <legend>Ignored Labels</legend>
+            <p class="panel-subtitle">Torrents carrying any of these labels will be hidden from the overview. Click an entry's <strong>x</strong> to remove it immediately, or use Save Ignored Labels to commit additions. Saved independently of the Transmission settings above.</p>
+            <div id="ignoredLabelsList" class="label-chips"></div>
+            <div class="row-inline-actions">
+              <input id="ignoredLabelsInput" list="knownLabels" placeholder="label name" />
+              <button type="button" id="addIgnoredLabelBtn" class="secondary">Add</button>
+            </div>
+            <div class="row-actions">
+              <button type="button" id="saveIgnoredLabelsBtn" class="secondary">Save Ignored Labels</button>
+            </div>
+          </fieldset>
         </div>
 
         <div id="settingsSecurityView" class="settings-view hidden">
