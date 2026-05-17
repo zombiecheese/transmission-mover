@@ -109,6 +109,8 @@ export function updateRuleLabelOptions(preferred = "") {
   if (!els.ruleLabelSelect) {
     return;
   }
+  // Preserve the user's in-progress selection across periodic rebuilds (e.g. label polling).
+  const currentValue = els.ruleLabelSelect.value;
   const labels = new Set();
   for (const label of state.availableLabels || []) {
     if (label) {
@@ -121,11 +123,23 @@ export function updateRuleLabelOptions(preferred = "") {
     }
   }
   const sorted = Array.from(labels).sort((a, b) => a.localeCompare(b));
-  const options = ['<option value="">-- select label --</option>'];
-  options.push(...sorted.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`));
-  els.ruleLabelSelect.innerHTML = options.join("");
+  // If the resulting option set is identical to what's already rendered, skip the
+  // innerHTML rewrite entirely so the <select> doesn't briefly drop focus/value.
+  const existingValues = Array.from(els.ruleLabelSelect.options)
+    .map((opt) => opt.value)
+    .filter((v) => v !== "");
+  const sameSet =
+    existingValues.length === sorted.length &&
+    existingValues.every((v, i) => v === sorted[i]);
+  if (!sameSet) {
+    const options = ['<option value="">-- select label --</option>'];
+    options.push(...sorted.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`));
+    els.ruleLabelSelect.innerHTML = options.join("");
+  }
   if (preferred && sorted.includes(preferred)) {
     els.ruleLabelSelect.value = preferred;
+  } else if (currentValue && sorted.includes(currentValue)) {
+    els.ruleLabelSelect.value = currentValue;
   }
 }
 
