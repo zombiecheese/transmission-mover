@@ -223,6 +223,16 @@ def list_logs(session: Session, limit: int = 100) -> list[MoveLog]:
     return list(session.exec(stmt))
 
 
+def clear_logs(session: Session) -> int:
+    logs = list(session.exec(select(MoveLog)))
+    deleted = len(logs)
+    for log in logs:
+        session.delete(log)
+    if deleted:
+        session.commit()
+    return deleted
+
+
 def migrate_plaintext_secrets(session: Session) -> None:
     changed = False
 

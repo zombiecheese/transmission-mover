@@ -165,6 +165,8 @@ export function renderRules() {
     .map((rule) => {
       const destination = state.destinations.find((d) => Number(d.id) === Number(rule.destination_id));
       const mode = escapeHtml((rule.transfer_mode || "move").toUpperCase());
+      const parallelismMode = escapeHtml((rule.parallelism_mode || "sequential").toUpperCase());
+      const conflictPolicy = escapeHtml((rule.conflict_policy || "overwrite").toUpperCase());
       const effectiveMethod = escapeHtml(computeRuleEffectiveMethod(rule, destination));
       const removeFromClient = rule.remove_from_client ? "Yes" : "No";
       const trashData = rule.remove_from_client && rule.trash_data_on_remove ? "Yes" : "No";
@@ -172,7 +174,7 @@ export function renderRules() {
       <tr>
         <td>${escapeHtml(rule.label)}</td>
         <td>${escapeHtml(rule.destination_name || "Unknown")}</td>
-        <td>${mode}<br /><span class="muted">Method: ${effectiveMethod}</span><br /><span class="muted">Remove from client: ${escapeHtml(removeFromClient)}</span><br /><span class="muted">Trash data: ${escapeHtml(trashData)}</span></td>
+        <td>${mode}<br /><span class="muted">Execution: ${parallelismMode}</span><br /><span class="muted">Method: ${effectiveMethod}</span><br /><span class="muted">Conflict: ${conflictPolicy}</span><br /><span class="muted">Remove from client: ${escapeHtml(removeFromClient)}</span><br /><span class="muted">Trash data: ${escapeHtml(trashData)}</span></td>
         <td>${escapeHtml((rule.transfer_schedule || "auto").toUpperCase())}${rule.transfer_schedule === "interval" ? ` (${Number(rule.transfer_interval_seconds || 300)}s)` : ""}</td>
         <td>${rule.enabled ? "Yes" : "No"}</td>
         <td>

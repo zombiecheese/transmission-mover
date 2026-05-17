@@ -102,6 +102,9 @@ export async function refreshAppSettings() {
   const normalizedWatchSourceKind = cfg.watch_source_kind === "sftp" ? "ssh" : (cfg.watch_source_kind || "local");
   els.watchSourceKind.value = normalizedWatchSourceKind;
   els.generalSettingsForm.watch_base_path.value = cfg.watch_base_path || "";
+  if (els.generalSettingsForm.max_parallel_transfers) {
+    els.generalSettingsForm.max_parallel_transfers.value = String(Number(cfg.max_parallel_transfers || 1));
+  }
   els.generalSettingsForm.watch_host.value = cfg.watch_host || "";
   els.generalSettingsForm.watch_port.value = cfg.watch_port || 22;
   els.generalSettingsForm.watch_username.value = cfg.watch_username || "";
@@ -219,6 +222,8 @@ export function resetRuleForm() {
   state.editingRuleId = null;
   if (els.ruleLabelSelect) els.ruleLabelSelect.value = "";
   if (els.ruleTransferMode) els.ruleTransferMode.value = "move";
+  if (els.ruleParallelismMode) els.ruleParallelismMode.value = "sequential";
+  if (els.ruleConflictPolicy) els.ruleConflictPolicy.value = "overwrite";
   if (els.ruleTransferSchedule) els.ruleTransferSchedule.value = "auto";
   if (els.ruleTransferIntervalSeconds) els.ruleTransferIntervalSeconds.value = "300";
   if (els.ruleRemoveFromClient) {
@@ -564,6 +569,8 @@ export function initEventHandlers() {
     payload.destination_id = Number(payload.destination_id);
     payload.enabled = els.ruleForm.enabled.checked;
     payload.transfer_mode = els.ruleTransferMode?.value || "move";
+    payload.parallelism_mode = els.ruleParallelismMode?.value || "sequential";
+    payload.conflict_policy = els.ruleConflictPolicy?.value || "overwrite";
     payload.transfer_schedule = els.ruleTransferSchedule?.value || "auto";
     payload.transfer_interval_seconds = Number(els.ruleTransferIntervalSeconds?.value || 300);
     payload.remove_from_client = Boolean(els.ruleRemoveFromClient?.checked);
@@ -684,6 +691,8 @@ export function initEventHandlers() {
       if (els.ruleLabelSelect) els.ruleLabelSelect.value = rule.label;
       if (els.ruleDestinationSelect) els.ruleDestinationSelect.value = String(rule.destination_id);
       if (els.ruleTransferMode) els.ruleTransferMode.value = rule.transfer_mode || "move";
+      if (els.ruleParallelismMode) els.ruleParallelismMode.value = rule.parallelism_mode || "sequential";
+      if (els.ruleConflictPolicy) els.ruleConflictPolicy.value = rule.conflict_policy || "overwrite";
       if (els.ruleTransferSchedule) els.ruleTransferSchedule.value = rule.transfer_schedule || "auto";
       if (els.ruleTransferIntervalSeconds) {
         els.ruleTransferIntervalSeconds.value = String(rule.transfer_interval_seconds || 300);
@@ -706,14 +715,22 @@ export function initEventHandlers() {
 
   els.runOnceBtn.addEventListener("click", async () => {
     try {
-      els.statusChip.textContent = "Running";
       await api("/api/run-once", { method: "POST" });
       await refreshActivity();
       showMessage("Scan completed.");
     } catch (err) {
       showMessage(err.message, true);
-    } finally {
-      els.statusChip.textContent = "Idle";
+    }
+  });
+
+  els.clearLogsBtn?.addEventListener("click", async () => {
+    try {
+      await api("/api/logs", { method: "DELETE" });
+      state.logs = [];
+      renderLogs(state.logs);
+      showMessage("Activity log cleared.");
+    } catch (err) {
+      showMessage(err.message, true);
     }
   });
 

@@ -26,6 +26,10 @@ class RemotePathAccessError(RuntimeError):
     pass
 
 
+class TransferConflictSkipError(RuntimeError):
+    pass
+
+
 ProgressCallback = Callable[[int, int], None]
 MethodUpdateCallback = Callable[[str], None]
 ActivityLogCallback = Callable[[str], None]
@@ -40,12 +44,14 @@ def transfer_to_destination(
     app_config: AppConfig | None,
     transfer_mode_override: str | None = None,
     transfer_method_preference_override: str | None = None,
+    conflict_policy_override: str | None = None,
     progress_callback: ProgressCallback | None = None,
     method_update_callback: MethodUpdateCallback | None = None,
     activity_log_callback: ActivityLogCallback | None = None,
 ) -> str:
     transfer_mode = (transfer_mode_override or (app_config.transfer_mode if app_config else "move")).lower()
     transfer_method_preference = (transfer_method_preference_override or "auto").lower()
+    conflict_policy = _normalize_conflict_policy(conflict_policy_override)
     if transfer_mode not in {"move", "copy"}:
         raise ValueError(f"Unsupported transfer mode: {transfer_mode}")
 
@@ -85,6 +91,8 @@ def transfer_to_destination(
             transfer_mode,
             transfer_method_preference,
             progress_callback,
+            conflict_policy,
+            activity_log_callback,
         )
         if method_used == "local":
             return "Moved to destination" if transfer_mode == "move" else "Copied to destination"
@@ -100,8 +108,10 @@ def transfer_to_destination(
             destination,
             app_config,
             transfer_mode,
+            conflict_policy,
             progress_callback,
             method_update_callback,
+            activity_log_callback,
         )
         return (
             f"Moved from remote watch source via {method_used}"
@@ -153,10 +163,19 @@ def _transfer_local_source(
     transfer_mode: str,
     transfer_method_preference: str = "auto",
     progress_callback: ProgressCallback | None = None,
+    conflict_policy: str = "overwrite",
     activity_log_callback: ActivityLogCallback | None = None,
 ) -> str:
     if destination.kind == "local":
-        _transfer_local_to_local(source_path, destination.base_path, torrent_name, transfer_mode, progress_callback)
+        _transfer_local_to_local(
+            source_path,
+            destination.base_path,
+            torrent_name,
+            transfer_mode,
+            conflict_policy,
+            progress_callback,
+            activity_log_callback,
+        )
         return "local"
 
     if destination.kind in {"sftp", "remote"}:
@@ -167,6 +186,7 @@ def _transfer_local_source(
             transfer_mode,
             transfer_method_preference,
             progress_callback,
+            conflict_policy,
             activity_log_callback,
         )
 
@@ -180,6 +200,7 @@ def _transfer_local_to_remote(
     transfer_mode: str,
     transfer_method_preference: str = "auto",
     progress_callback: ProgressCallback | None = None,
+    conflict_policy: str = "overwrite",
     activity_log_callback: ActivityLogCallback | None = None,
 ) -> str:
     source = Path(source_path)
@@ -247,8 +268,12 @@ def _transfer_local_to_remote(
                     method,
                     required_bytes,
                     progress_callback,
+                    conflict_policy,
+                    activity_log_callback,
                 )
                 return method
+            except TransferConflictSkipError:
+                raise
             except Exception as exc:
                 failed_shell_methods.append(f"{method}: {exc}")
                 logger.warning("%s transfer failed for '%s': %s", method, torrent_name, exc)
@@ -264,12 +289,28 @@ def _transfer_local_to_remote(
                 )
             if activity_log_callback:
                 activity_log_callback(f"Attempting sftp transfer for '{torrent_name}'.")
-            _transfer_local_to_sftp(source_path, destination, torrent_name, transfer_mode, progress_callback)
+            _transfer_local_to_sftp(
+                source_path,
+                destination,
+                torrent_name,
+                transfer_mode,
+                conflict_policy,
+                progress_callback,
+                activity_log_callback,
+            )
             return "sftp"
 
     if activity_log_callback:
         activity_log_callback(f"Falling back to sftp transfer for '{torrent_name}'.")
-    _transfer_local_to_sftp(source_path, destination, torrent_name, transfer_mode, progress_callback)
+    _transfer_local_to_sftp(
+        source_path,
+        destination,
+        torrent_name,
+        transfer_mode,
+        conflict_policy,
+        progress_callback,
+        activity_log_callback,
+    )
     return "sftp"
 
 
@@ -312,6 +353,8 @@ def _transfer_local_to_remote_via_shell(
     method: str,
     required_bytes: int,
     progress_callback: ProgressCallback | None = None,
+    conflict_policy: str = "overwrite",
+    activity_log_callback: ActivityLogCallback | None = None,
 ) -> None:
     if method not in {"rsync", "scp"}:
         raise ValueError(f"Unsupported shell transfer method: {method}")
@@ -335,9 +378,31 @@ def _transfer_local_to_remote_via_shell(
         private_key=destination.private_key,
         key_passphrase=destination.key_passphrase,
     )
+    remote_path = f"{destination.base_path.rstrip('/')}/{torrent_name}"
     try:
         base_remote = destination.base_path.rstrip("/") or "/"
         _ensure_remote_dirs_via_shell(transport, base_remote)
+
+        if _remote_path_exists_via_shell(transport, remote_path):
+            if conflict_policy == "skip":
+                message = f"Conflict at remote path '{remote_path}'. Policy 'skip' selected; transfer skipped."
+                if activity_log_callback:
+                    activity_log_callback(message)
+                raise TransferConflictSkipError(message)
+            if conflict_policy == "rename":
+                renamed_path = _next_available_remote_path_via_shell(transport, remote_path)
+                if activity_log_callback:
+                    activity_log_callback(
+                        f"Conflict at remote path '{remote_path}'. Policy 'rename' selected; using '{renamed_path}'."
+                    )
+                remote_path = renamed_path
+            else:
+                if activity_log_callback:
+                    activity_log_callback(
+                        f"Conflict at remote path '{remote_path}'. Policy 'overwrite' selected; replacing existing path."
+                    )
+                _remove_remote_path_via_shell(transport, remote_path)
+
         _ensure_remote_free_space(
             transport,
             base_remote,
@@ -348,7 +413,6 @@ def _transfer_local_to_remote_via_shell(
         transport.close()
 
     ssh_port = int(destination.detected_scp_port or destination.port or 22)
-    remote_path = f"{destination.base_path.rstrip('/')}/{torrent_name}"
     remote_target = f"{destination.username}@{destination.host}:{remote_path}"
 
     key_temp_path: str | None = None
@@ -458,7 +522,9 @@ def _transfer_local_to_local(
     destination_base: str,
     torrent_name: str,
     transfer_mode: str,
+    conflict_policy: str,
     progress_callback: ProgressCallback | None = None,
+    activity_log_callback: ActivityLogCallback | None = None,
 ) -> None:
     source = Path(source_path)
     if not source.exists():
@@ -472,6 +538,26 @@ def _transfer_local_to_local(
         _ensure_local_free_space(destination_dir, required_bytes, "local destination")
 
     target = destination_dir / torrent_name
+    if target.exists():
+        if conflict_policy == "skip":
+            message = f"Conflict at local path '{target}'. Policy 'skip' selected; transfer skipped."
+            if activity_log_callback:
+                activity_log_callback(message)
+            raise TransferConflictSkipError(message)
+        if conflict_policy == "rename":
+            renamed_target = _next_available_local_path(target)
+            if activity_log_callback:
+                activity_log_callback(
+                    f"Conflict at local path '{target}'. Policy 'rename' selected; using '{renamed_target}'."
+                )
+            target = renamed_target
+        else:
+            if activity_log_callback:
+                activity_log_callback(
+                    f"Conflict at local path '{target}'. Policy 'overwrite' selected; replacing existing path."
+                )
+            _remove_local_path(target)
+
     if transfer_mode == "copy" or _requires_local_capacity_check(source, destination_dir, transfer_mode):
         if source.is_dir():
             _copy_local_dir_with_progress(source, target, required_bytes, progress_callback)
@@ -729,7 +815,9 @@ def _transfer_local_to_sftp(
     destination: Destination,
     torrent_name: str,
     transfer_mode: str,
+    conflict_policy: str,
     progress_callback: ProgressCallback | None = None,
+    activity_log_callback: ActivityLogCallback | None = None,
 ) -> None:
     source = Path(source_path)
     if not source.exists():
@@ -742,6 +830,26 @@ def _transfer_local_to_sftp(
     sftp, transport = _connect_sftp(destination)
     try:
         _ensure_remote_dirs_via_shell(transport, base_remote)
+        if _remote_path_exists_sftp(sftp, target_remote):
+            if conflict_policy == "skip":
+                message = f"Conflict at remote path '{target_remote}'. Policy 'skip' selected; transfer skipped."
+                if activity_log_callback:
+                    activity_log_callback(message)
+                raise TransferConflictSkipError(message)
+            if conflict_policy == "rename":
+                renamed_remote = _next_available_remote_path_sftp(sftp, target_remote)
+                if activity_log_callback:
+                    activity_log_callback(
+                        f"Conflict at remote path '{target_remote}'. Policy 'rename' selected; using '{renamed_remote}'."
+                    )
+                target_remote = renamed_remote
+            else:
+                if activity_log_callback:
+                    activity_log_callback(
+                        f"Conflict at remote path '{target_remote}'. Policy 'overwrite' selected; replacing existing path."
+                    )
+                _remove_remote_path(sftp, target_remote)
+
         _ensure_remote_free_space(transport, base_remote, required_bytes, "remote destination")
         if source.is_dir():
             _upload_dir(sftp, source, base_remote, target_remote, required_bytes, progress_callback)
@@ -826,8 +934,10 @@ def _transfer_sftp_source(
     destination: Destination,
     app_config: AppConfig | None,
     transfer_mode: str,
+    conflict_policy: str,
     progress_callback: ProgressCallback | None = None,
     method_update_callback: MethodUpdateCallback | None = None,
+    activity_log_callback: ActivityLogCallback | None = None,
 ) -> str:
     if not app_config or not app_config.watch_base_path:
         raise ValueError("watch_base_path is required for remote SSH watch source")
@@ -843,6 +953,26 @@ def _transfer_sftp_source(
             destination_dir = Path(destination.base_path)
             _ensure_local_free_space(destination_dir, required_bytes, "local destination")
             local_target = destination_dir / torrent_name
+            if local_target.exists():
+                if conflict_policy == "skip":
+                    message = f"Conflict at local path '{local_target}'. Policy 'skip' selected; transfer skipped."
+                    if activity_log_callback:
+                        activity_log_callback(message)
+                    raise TransferConflictSkipError(message)
+                if conflict_policy == "rename":
+                    renamed_target = _next_available_local_path(local_target)
+                    if activity_log_callback:
+                        activity_log_callback(
+                            f"Conflict at local path '{local_target}'. Policy 'rename' selected; using '{renamed_target}'."
+                        )
+                    local_target = renamed_target
+                else:
+                    if activity_log_callback:
+                        activity_log_callback(
+                            f"Conflict at local path '{local_target}'. Policy 'overwrite' selected; replacing existing path."
+                        )
+                    _remove_local_path(local_target)
+
             _download_remote_source(
                 source_sftp,
                 remote_source,
@@ -1019,5 +1149,76 @@ def _requires_local_capacity_check(source: Path, destination_dir: Path, transfer
     except OSError:
         return True
     return source_dev != destination_dev
+
+
+def _normalize_conflict_policy(value: str | None) -> str:
+    policy = (value or "overwrite").strip().lower()
+    if policy not in {"overwrite", "rename", "skip"}:
+        return "overwrite"
+    return policy
+
+
+def _remove_local_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _next_available_local_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.name
+    for suffix in range(1, 10000):
+        candidate = path.parent / f"{stem} ({suffix})"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Unable to find available local path for rename policy at {path}")
+
+
+def _remote_path_exists_sftp(sftp: paramiko.SFTPClient, remote_path: str) -> bool:
+    try:
+        sftp.stat(remote_path)
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+
+
+def _next_available_remote_path_sftp(sftp: paramiko.SFTPClient, remote_path: str) -> str:
+    if not _remote_path_exists_sftp(sftp, remote_path):
+        return remote_path
+    for suffix in range(1, 10000):
+        candidate = f"{remote_path} ({suffix})"
+        if not _remote_path_exists_sftp(sftp, candidate):
+            return candidate
+    raise RuntimeError(f"Unable to find available remote path for rename policy at {remote_path}")
+
+
+def _remote_path_exists_via_shell(transport: paramiko.Transport, remote_path: str) -> bool:
+    quoted = shlex.quote(remote_path)
+    exit_status, _stdout, _stderr = exec_remote_command(transport, f"test -e {quoted}")
+    return exit_status == 0
+
+
+def _next_available_remote_path_via_shell(transport: paramiko.Transport, remote_path: str) -> str:
+    if not _remote_path_exists_via_shell(transport, remote_path):
+        return remote_path
+    for suffix in range(1, 10000):
+        candidate = f"{remote_path} ({suffix})"
+        if not _remote_path_exists_via_shell(transport, candidate):
+            return candidate
+    raise RuntimeError(f"Unable to find available remote path for rename policy at {remote_path}")
+
+
+def _remove_remote_path_via_shell(transport: paramiko.Transport, remote_path: str) -> None:
+    quoted = shlex.quote(remote_path)
+    exit_status, _stdout, stderr = exec_remote_command(transport, f"rm -rf -- {quoted}")
+    if exit_status != 0:
+        detail = (stderr or "").strip() or f"exit code {exit_status}"
+        raise RemotePathAccessError(f"Unable to remove remote path '{remote_path}' for overwrite policy: {detail}")
 
 

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from sqlmodel import Session
 from app.models import AppConfig, Destination, LabelRule
-from app.transmission import TransmissionClient
-from app.movers import transfer_to_destination, InsufficientSpaceError, RemotePathAccessError
+from app.movers import transfer_to_destination, InsufficientSpaceError, RemotePathAccessError, TransferConflictSkipError
 from app.crud import create_log
 import logging
 
@@ -12,7 +11,6 @@ logger = logging.getLogger(__name__)
 def process_torrent(
     *,
     session: Session,
-    client: TransmissionClient,
     app_config: AppConfig,
     label_to_rule: dict[str, LabelRule],
     destination_by_id: dict[int, Destination],
@@ -82,6 +80,7 @@ def process_torrent(
             app_config=app_config,
             transfer_mode_override=rule.transfer_mode,
             transfer_method_preference_override=rule.transfer_method_preference,
+            conflict_policy_override=rule.conflict_policy,
             progress_callback=progress_callback,
             method_update_callback=method_update_callback,
             activity_log_callback=_log_activity,
@@ -141,6 +140,17 @@ def process_torrent(
             "processed": False,
             "message": f"Destination path access failed (destination='{destination_name}', base_path={destination_base_path}): {exc}",
         }
+    except TransferConflictSkipError as exc:
+        create_log(
+            session,
+            torrent_name=torrent_name,
+            torrent_id=torrent_id,
+            label=matched_label,
+            destination_name=destination.name,
+            status="skipped",
+            message=str(exc),
+        )
+        return {"processed": False, "message": str(exc)}
     except Exception as exc:
         logger.exception(
             "Failed to move/copy %s (destination='%s', base_path=%s)",

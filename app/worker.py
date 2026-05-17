@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 import logging
 import threading
 import time
@@ -13,7 +15,7 @@ from sqlmodel import Session, select
 from app import crud
 from app.crud import create_log
 from app.db import engine
-from app.models import AppConfig, Destination, LabelRule
+from app.models import AppConfig, Destination, LabelRule, TransmissionConfig
 from app.transfer_executor import process_torrent
 from app.transmission import TransmissionClient
 
@@ -21,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 class MoveWorker:
+    MAX_PARALLEL_TRANSFERS = 8
+
     def __init__(self, poll_seconds: int = 20) -> None:
         # Enforce a minimum poll interval of 1 second
         self.poll_seconds = max(int(poll_seconds), 1)
@@ -29,6 +33,8 @@ class MoveWorker:
         self._state_lock = threading.Lock()
         self._active_transfers: dict[str, dict[str, Any]] = {}
         self._last_rule_run_at: dict[int, float] = {}
+        self._rule_locks: dict[int, threading.Lock] = {}
+        self._rule_locks_guard = threading.Lock()
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -164,22 +170,54 @@ class MoveWorker:
 
                 processed = 0
                 last_message = "No eligible torrents matched the enabled rules"
-                for torrent in torrents:
-                    result = self._process_torrent(
-                        session=session,
-                        client=client,
-                        app_config=app_config,
-                        label_to_rule=label_to_rule,
-                        destination_by_id=destination_by_id,
-                        eligible_labels=eligible_labels,
-                        respect_rule_schedule=respect_rule_schedule,
-                        torrent=torrent,
-                        log_skip_reasons=log_skip_reasons,
-                    )
-                    if bool(result.get("processed")):
-                        processed += 1
-                    if result.get("message"):
-                        last_message = str(result["message"])
+                configured_parallel = int(getattr(app_config, "max_parallel_transfers", 1) or 1)
+                max_parallel = max(1, min(configured_parallel, self.MAX_PARALLEL_TRANSFERS))
+                if specific_torrent_id is not None:
+                    max_parallel = 1
+
+                if max_parallel == 1:
+                    for torrent in torrents:
+                        result = self._process_torrent(
+                            transmission_cfg=cfg,
+                            app_config=app_config,
+                            label_to_rule=label_to_rule,
+                            destination_by_id=destination_by_id,
+                            eligible_labels=eligible_labels,
+                            respect_rule_schedule=respect_rule_schedule,
+                            torrent=torrent,
+                            log_skip_reasons=log_skip_reasons,
+                        )
+                        if bool(result.get("processed")):
+                            processed += 1
+                        if result.get("message"):
+                            last_message = str(result["message"])
+                else:
+                    logger.info("Processing up to %s transfers concurrently.", max_parallel)
+                    with ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="tm-transfer") as pool:
+                        futures = [
+                            pool.submit(
+                                self._process_torrent,
+                                transmission_cfg=cfg,
+                                app_config=app_config,
+                                label_to_rule=label_to_rule,
+                                destination_by_id=destination_by_id,
+                                eligible_labels=eligible_labels,
+                                respect_rule_schedule=respect_rule_schedule,
+                                torrent=torrent,
+                                log_skip_reasons=log_skip_reasons,
+                            )
+                            for torrent in torrents
+                        ]
+                        for future in as_completed(futures):
+                            try:
+                                result = future.result()
+                            except Exception as exc:
+                                logger.exception("Unhandled exception while processing torrent in parallel worker")
+                                result = {"processed": False, "message": f"Transfer task failed: {exc}"}
+                            if bool(result.get("processed")):
+                                processed += 1
+                            if result.get("message"):
+                                last_message = str(result["message"])
 
                 if respect_rule_schedule and specific_torrent_id is None:
                     now = time.time()
@@ -203,8 +241,7 @@ class MoveWorker:
     def _process_torrent(
         self,
         *,
-        session: Session,
-        client: TransmissionClient,
+        transmission_cfg: TransmissionConfig,
         app_config: AppConfig,
         label_to_rule: dict[str, LabelRule],
         destination_by_id: dict[int, Destination],
@@ -221,6 +258,29 @@ class MoveWorker:
         rule = label_to_rule.get(matched_label) if matched_label else None
         destination = destination_by_id.get(rule.destination_id) if rule else None
         transfer_method = self._estimate_transfer_method(rule, destination, app_config)
+        parallelism_mode = str((rule.parallelism_mode if rule else "sequential") or "sequential").strip().lower()
+
+        rule_lock = None
+        if rule and rule.id is not None and parallelism_mode == "sequential":
+            rule_lock = self._get_rule_lock(rule.id)
+
+        with self._state_lock:
+            if transfer_key in self._active_transfers:
+                return {
+                    "processed": False,
+                    "message": f"Transfer already active for '{torrent_name}'. Skipping duplicate run.",
+                }
+            self._active_transfers[transfer_key] = {
+                "torrent_id": torrent_id,
+                "torrent_name": torrent_name,
+                "destination_name": destination.name if destination else None,
+                "mode": str((rule.transfer_mode if rule else app_config.transfer_mode) or "move"),
+                "method": transfer_method,
+                "transferred_bytes": 0,
+                "total_bytes": 0,
+                "speed_bytes_per_sec": 0.0,
+                "percent": 0.0,
+            }
 
         started_at = time.time()
 
@@ -251,37 +311,52 @@ class MoveWorker:
                     self._active_transfers[transfer_key]["method"] = transfer_method
 
         try:
-            result = process_torrent(
-                session=session,
-                client=client,
-                app_config=app_config,
-                label_to_rule=label_to_rule,
-                destination_by_id=destination_by_id,
-                eligible_labels=eligible_labels if respect_rule_schedule else None,
-                respect_rule_schedule=respect_rule_schedule,
-                torrent=torrent,
-                log_skip_reasons=log_skip_reasons,
-                progress_callback=_progress_callback,
-                method_update_callback=_method_update_callback,
-            )
-
-            if bool(result.get("processed")) and torrent_id is not None and rule and rule.remove_from_client:
-                try:
-                    client.remove_torrent(torrent_id, delete_local_data=bool(rule.trash_data_on_remove))
-                except Exception as exc:
-                    logger.warning("Failed to remove torrent %s after transfer: %s", torrent_id, exc)
-                    create_log(
-                        session,
-                        torrent_name=torrent_name,
-                        torrent_id=torrent_id,
-                        status="error",
-                        message=f"Transfer succeeded but torrent removal failed: {exc}",
+            with (rule_lock or nullcontext()):
+                with Session(engine) as session:
+                    result = process_torrent(
+                        session=session,
+                        app_config=app_config,
+                        label_to_rule=label_to_rule,
+                        destination_by_id=destination_by_id,
+                        eligible_labels=eligible_labels if respect_rule_schedule else None,
+                        respect_rule_schedule=respect_rule_schedule,
+                        torrent=torrent,
+                        log_skip_reasons=log_skip_reasons,
+                        progress_callback=_progress_callback,
+                        method_update_callback=_method_update_callback,
                     )
 
-            return result
+                    if bool(result.get("processed")) and torrent_id is not None and rule and rule.remove_from_client:
+                        try:
+                            remove_client = TransmissionClient(
+                                rpc_url=transmission_cfg.rpc_url,
+                                username=transmission_cfg.username,
+                                password=transmission_cfg.password,
+                                verify_tls=transmission_cfg.verify_tls,
+                            )
+                            remove_client.remove_torrent(torrent_id, delete_local_data=bool(rule.trash_data_on_remove))
+                        except Exception as exc:
+                            logger.warning("Failed to remove torrent %s after transfer: %s", torrent_id, exc)
+                            create_log(
+                                session,
+                                torrent_name=torrent_name,
+                                torrent_id=torrent_id,
+                                status="error",
+                                message=f"Transfer succeeded but torrent removal failed: {exc}",
+                            )
+
+                    return result
         finally:
             with self._state_lock:
                 self._active_transfers.pop(transfer_key, None)
+
+    def _get_rule_lock(self, rule_id: int) -> threading.Lock:
+        with self._rule_locks_guard:
+            lock = self._rule_locks.get(rule_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._rule_locks[rule_id] = lock
+            return lock
 
     @staticmethod
     def _parse_method_csv(value: str | None) -> list[str]:

@@ -8,6 +8,8 @@ from app.schemas import AppSettingsIn, DestinationIn, LabelRuleIn
 
 
 def validate_app_settings_payload(payload: AppSettingsIn) -> None:
+    if payload.max_parallel_transfers < 1 or payload.max_parallel_transfers > 8:
+        raise HTTPException(status_code=400, detail="max_parallel_transfers must be between 1 and 8")
     if payload.watch_source_kind not in {"local", "ssh"}:
         raise HTTPException(status_code=400, detail="watch_source_kind must be local or ssh")
     if payload.watch_source_kind == "ssh":
@@ -49,6 +51,8 @@ def normalize_destination_payload(payload: DestinationIn) -> DestinationIn:
 
 
 def validate_rule_payload(session: Session, payload: LabelRuleIn) -> None:
+    payload.conflict_policy = (payload.conflict_policy or "overwrite").strip().lower()
+    payload.parallelism_mode = (payload.parallelism_mode or "sequential").strip().lower()
     destination = crud.get_destination(session, payload.destination_id)
     if not destination:
         raise HTTPException(status_code=400, detail="Destination does not exist")
@@ -60,6 +64,10 @@ def validate_rule_payload(session: Session, payload: LabelRuleIn) -> None:
         raise HTTPException(status_code=400, detail="transfer_interval_seconds must be at least 10")
     if payload.transfer_method_preference not in {"auto", "rsync", "scp", "sftp"}:
         raise HTTPException(status_code=400, detail="transfer_method_preference must be auto, rsync, scp, or sftp")
+    if payload.conflict_policy not in {"overwrite", "rename", "skip"}:
+        raise HTTPException(status_code=400, detail="conflict_policy must be overwrite, rename, or skip")
+    if payload.parallelism_mode not in {"parallel", "sequential"}:
+        raise HTTPException(status_code=400, detail="parallelism_mode must be parallel or sequential")
     
     # Validate source-destination compatibility
     app_config = crud.get_app_config(session)

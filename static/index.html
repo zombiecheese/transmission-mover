@@ -20,9 +20,6 @@
       <header class="hero">
         <h1>Transmission Mover</h1>
         <p>Map labels to destinations and auto-move completed torrents.</p>
-        <div class="hero-actions">
-          <span id="statusChip" class="chip">Idle</span>
-        </div>
       </header>
 
       <section class="panel overview-panel">
@@ -85,6 +82,17 @@
         </button>
         <button
           type="button"
+          id="activityLogToggleBtn"
+          class="secondary icon-button"
+          aria-label="Hide activity log"
+          aria-expanded="true"
+          aria-controls="activityLogPanel"
+        >
+          <span class="icon-glyph" aria-hidden="true">&#9776;</span>
+          <span>Activity Log</span>
+        </button>
+        <button
+          type="button"
           id="logoutBtn"
           class="secondary icon-button"
           aria-label="Log out"
@@ -121,6 +129,11 @@
               <label>
                 Base path
                 <input name="watch_base_path" placeholder="/watch or /volume1/downloads/completed" />
+              </label>
+
+              <label>
+                Max parallel transfers
+                <input name="max_parallel_transfers" type="number" min="1" max="8" step="1" value="1" />
               </label>
 
               <p class="panel-subtitle">For local watch sources, leave base path blank to use Transmission's reported download directory.</p>
@@ -382,6 +395,15 @@
               <option value="move">Move data</option>
               <option value="copy">Copy data</option>
             </select>
+            <select name="parallelism_mode" id="ruleParallelismMode" required>
+              <option value="sequential">Sequential</option>
+              <option value="parallel">Parallel</option>
+            </select>
+            <select name="conflict_policy" id="ruleConflictPolicy" required>
+              <option value="overwrite">Overwrite on conflict</option>
+              <option value="rename">Rename on conflict</option>
+              <option value="skip">Skip on conflict</option>
+            </select>
             <select name="transfer_schedule" id="ruleTransferSchedule" required>
               <option value="auto">Auto</option>
               <option value="interval">Interval</option>
@@ -435,6 +457,9 @@
       <section class="panel" id="activityLogPanel">
         <h2>Live Activity Log</h2>
         <p class="panel-subtitle">Shows in-flight transfers and recent events from tests, connections, and moves.</p>
+        <div class="row-actions">
+          <button type="button" id="clearLogsBtn" class="secondary" aria-label="Clear activity log">Clear Log</button>
+        </div>
         <div class="table-wrap activity-log-wrap">
           <table>
             <thead>

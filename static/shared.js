@@ -73,9 +73,18 @@ export function setMoveRulesPanelOpen(isOpen) {
   }
 }
 
+export function setActivityLogPanelOpen(isOpen) {
+  els.activityLogPanel?.classList.toggle("hidden", !isOpen);
+  if (els.activityLogToggleBtn) {
+    els.activityLogToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    els.activityLogToggleBtn.setAttribute("aria-label", isOpen ? "Hide activity log" : "Show activity log");
+  }
+}
+
 export function initSettingsMenu() {
   setSettingsPanelOpen(false);
   setMoveRulesPanelOpen(false);
+  setActivityLogPanelOpen(true);
   setSettingsView("transmission");
 
   els.settingsToggleBtn?.addEventListener("click", () => {
@@ -86,6 +95,11 @@ export function initSettingsMenu() {
   els.moveRulesToggleBtn?.addEventListener("click", () => {
     const isHidden = els.moveRulesPanel?.classList.contains("hidden");
     setMoveRulesPanelOpen(Boolean(isHidden));
+  });
+
+  els.activityLogToggleBtn?.addEventListener("click", () => {
+    const isHidden = els.activityLogPanel?.classList.contains("hidden");
+    setActivityLogPanelOpen(Boolean(isHidden));
   });
 
   els.settingsMenu?.addEventListener("click", (ev) => {
@@ -203,6 +217,7 @@ export function getAppSettingsPayloadFromForm() {
   payload.transmission_in_container = Boolean(els.transmissionInContainer?.checked);
   payload.transfer_schedule = payload.transfer_schedule || "auto";
   payload.transfer_interval_seconds = Number(payload.transfer_interval_seconds || 300);
+  payload.max_parallel_transfers = Math.max(1, Math.min(8, Number(payload.max_parallel_transfers || 1)));
   payload.watch_port = Number(payload.watch_port || 22);
   payload.ignored_labels = state.ignoredLabels.join(",");
   payload.remap_download_path = Boolean(els.remapDownloadPath?.checked);

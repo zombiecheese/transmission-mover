@@ -99,6 +99,7 @@ class AppSettingsIn(BaseModel):
     transfer_mode: str = "move"
     transfer_schedule: str = "auto"
     transfer_interval_seconds: int = 300
+    max_parallel_transfers: int = 1
     remove_torrent_on_complete: bool = True
     watch_source_kind: str = "local"  # local | ssh (remote ssh negotiation)
     watch_base_path: Optional[str] = None
@@ -130,6 +131,7 @@ class AppSettingsSafeOut(BaseModel):
     transfer_mode: str = "move"
     transfer_schedule: str = "auto"
     transfer_interval_seconds: int = 300
+    max_parallel_transfers: int = 1
     remove_torrent_on_complete: bool = True
     watch_source_kind: str = "local"  # local | ssh (remote ssh negotiation)
     watch_base_path: Optional[str] = None
@@ -217,6 +219,8 @@ class LabelRuleIn(BaseModel):
     transfer_schedule: str = "auto"
     transfer_interval_seconds: int = 300
     transfer_method_preference: str = "auto"  # auto | rsync | scp | sftp
+    conflict_policy: str = "overwrite"  # overwrite | rename | skip
+    parallelism_mode: str = "sequential"  # sequential | parallel
     remove_from_client: bool = True
     trash_data_on_remove: bool = False
 

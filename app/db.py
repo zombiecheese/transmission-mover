@@ -51,10 +51,13 @@ def _run_migrations() -> None:
             ("appconfig", "transmission_in_container", "INTEGER DEFAULT 0"),
             ("appconfig", "transfer_schedule", "TEXT DEFAULT 'auto'"),
             ("appconfig", "transfer_interval_seconds", "INTEGER DEFAULT 300"),
+            ("appconfig", "max_parallel_transfers", "INTEGER DEFAULT 1"),
             ("labelrule", "transfer_mode", "TEXT DEFAULT 'move'"),
             ("labelrule", "transfer_schedule", "TEXT DEFAULT 'auto'"),
             ("labelrule", "transfer_interval_seconds", "INTEGER DEFAULT 300"),
             ("labelrule", "transfer_method_preference", "TEXT DEFAULT 'auto'"),
+            ("labelrule", "conflict_policy", "TEXT DEFAULT 'overwrite'"),
+            ("labelrule", "parallelism_mode", "TEXT DEFAULT 'sequential'"),
             ("labelrule", "remove_from_client", "INTEGER DEFAULT 1"),
             ("labelrule", "trash_data_on_remove", "INTEGER DEFAULT 0"),
             ("destination", "transfer_method_preference", "TEXT DEFAULT 'auto'"),
@@ -76,6 +79,17 @@ def _run_migrations() -> None:
             except Exception:
                 # Column already exists or table not yet created; both are fine.
                 pass
+
+        try:
+            conn.execute(
+                sqlalchemy.text(
+                    "UPDATE labelrule SET parallelism_mode = 'sequential' "
+                    "WHERE parallelism_mode IS NULL OR TRIM(parallelism_mode) = ''"
+                )
+            )
+            conn.commit()
+        except Exception:
+            pass
 
 
 from typing import Generator

@@ -33,7 +33,10 @@ export const els = {
   settingsSecurityView: document.getElementById("settingsSecurityView"),
   moveRulesPanel: document.getElementById("moveRulesPanel"),
   moveRulesToggleBtn: document.getElementById("moveRulesToggleBtn"),
+  activityLogPanel: document.getElementById("activityLogPanel"),
+  activityLogToggleBtn: document.getElementById("activityLogToggleBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
+  clearLogsBtn: document.getElementById("clearLogsBtn"),
   generalSettingsForm: document.getElementById("generalSettingsForm"),
   watchSourceKind: document.getElementById("watchSourceKind"),
   sourceTypeHint: document.getElementById("sourceTypeHint"),
@@ -58,6 +61,8 @@ export const els = {
   destinationCancelBtn: document.getElementById("destinationCancelBtn"),
   ruleLabelSelect: document.getElementById("ruleLabelSelect"),
   ruleTransferMode: document.getElementById("ruleTransferMode"),
+  ruleParallelismMode: document.getElementById("ruleParallelismMode"),
+  ruleConflictPolicy: document.getElementById("ruleConflictPolicy"),
   ruleTransferSchedule: document.getElementById("ruleTransferSchedule"),
   ruleTransferIntervalSeconds: document.getElementById("ruleTransferIntervalSeconds"),
   ruleRemoveFromClient: document.getElementById("ruleRemoveFromClient"),
@@ -91,7 +96,6 @@ export const els = {
   overviewTable: document.getElementById("overviewTable"),
   overviewChip: document.getElementById("overviewChip"),
   runOnceBtn: document.getElementById("runOnceBtn"),
-  statusChip: document.getElementById("statusChip"),
   toastContainer: document.getElementById("toastContainer"),
 };
 

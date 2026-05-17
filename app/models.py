@@ -18,6 +18,7 @@ class AppConfig(SQLModel, table=True):
     transfer_mode: str = Field(default="move")  # move | copy
     transfer_schedule: str = Field(default="auto")  # auto | interval | manual
     transfer_interval_seconds: int = Field(default=300)
+    max_parallel_transfers: int = Field(default=1)
     remove_torrent_on_complete: bool = Field(default=True)
     watch_source_kind: str = Field(default="local")  # local | ssh
     watch_base_path: Optional[str] = None
@@ -69,6 +70,8 @@ class LabelRule(SQLModel, table=True):
     transfer_schedule: str = Field(default="auto")  # auto | interval | manual
     transfer_interval_seconds: int = Field(default=300)
     transfer_method_preference: str = Field(default="auto")  # auto | rsync | scp | sftp
+    conflict_policy: str = Field(default="overwrite")  # overwrite | rename | skip
+    parallelism_mode: str = Field(default="sequential")  # sequential | parallel
     remove_from_client: bool = Field(default=True)
     trash_data_on_remove: bool = Field(default=False)
 

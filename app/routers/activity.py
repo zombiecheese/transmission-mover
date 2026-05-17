@@ -32,6 +32,12 @@ def get_logs(limit: int = 100, session: Session = Depends(get_session)) -> list[
     return [MoveLogOut.model_validate(log.model_dump()) for log in crud.list_logs(session, limit=limit)]
 
 
+@router.delete("/logs")
+def clear_logs(session: Session = Depends(get_session)) -> dict[str, int]:
+    deleted = crud.clear_logs(session)
+    return {"deleted": deleted}
+
+
 @router.get("/transfers/active", response_model=list[TransferProgressOut])
 def get_active_transfers() -> list[TransferProgressOut]:
     return [TransferProgressOut.model_validate(item) for item in worker.get_active_transfers()]
