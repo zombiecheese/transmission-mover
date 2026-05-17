@@ -100,7 +100,7 @@ export function initSettingsMenu() {
   setLabelManagementPanelOpen(false);
   setDestinationsPanelOpen(false);
   setLabelRulesPanelOpen(false);
-  setActivityLogPanelOpen(true);
+  setActivityLogPanelOpen(false);
   setSettingsView("transmission");
 
   els.settingsToggleBtn?.addEventListener("click", () => {
