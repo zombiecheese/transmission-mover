@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0e8474" />
     <title>Transmission Mover</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -10,7 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260516-11" />
   </head>
   <body>
     <div class="bg-glow bg-glow-a"></div>
@@ -59,7 +60,7 @@
         </div>
       </section>
 
-      <div class="section-launch-row">
+      <nav class="section-launch-row" aria-label="Sections">
         <button
           type="button"
           id="labelRulesToggleBtn"
@@ -124,7 +125,7 @@
           <span class="icon-glyph" aria-hidden="true">&#x21AA;</span>
           <span>Log Out</span>
         </button>
-      </div>
+      </nav>
 
       <section id="settingsPanel" class="panel settings-panel hidden">
         <h2>Settings</h2>

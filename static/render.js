@@ -163,10 +163,10 @@ export function renderDestinations() {
       const kindLabel = isRemote ? "Remote" : "Local";
       return `
         <tr>
-          <td>${escapeHtml(dest.name)}</td>
-          <td>${escapeHtml(kindLabel)}</td>
-          <td>${escapeHtml(target)}</td>
-          <td>
+          <td data-label="Name">${escapeHtml(dest.name)}</td>
+          <td data-label="Type">${escapeHtml(kindLabel)}</td>
+          <td data-label="Target">${escapeHtml(target)}</td>
+          <td class="cell-actions">
             <button type="button" class="secondary" data-edit-destination="${dest.id}">Edit</button>
             <button type="button" class="secondary" data-delete-destination="${dest.id}">Delete</button>
           </td>
@@ -199,12 +199,12 @@ export function renderRules() {
       const trashData = rule.remove_from_client && rule.trash_data_on_remove ? "Yes" : "No";
       return `
       <tr>
-        <td>${escapeHtml(rule.label)}</td>
-        <td>${escapeHtml(rule.destination_name || "Unknown")}</td>
-        <td>${mode}<br /><span class="muted">Execution: ${parallelismMode}</span><br /><span class="muted">Method: ${effectiveMethod}</span><br /><span class="muted">Conflict: ${conflictPolicy}</span><br /><span class="muted">Remove from client: ${escapeHtml(removeFromClient)}</span><br /><span class="muted">Trash data: ${escapeHtml(trashData)}</span></td>
-        <td>${escapeHtml((rule.transfer_schedule || "auto").toUpperCase())}${rule.transfer_schedule === "interval" ? ` (${Number(rule.transfer_interval_seconds || 300)}s)` : ""}</td>
-        <td>${rule.enabled ? "Yes" : "No"}</td>
-        <td>
+        <td data-label="Label">${escapeHtml(rule.label)}</td>
+        <td data-label="Destination">${escapeHtml(rule.destination_name || "Unknown")}</td>
+        <td data-label="Data handling">${mode}<br /><span class="muted">Execution: ${parallelismMode}</span><br /><span class="muted">Method: ${effectiveMethod}</span><br /><span class="muted">Conflict: ${conflictPolicy}</span><br /><span class="muted">Remove from client: ${escapeHtml(removeFromClient)}</span><br /><span class="muted">Trash data: ${escapeHtml(trashData)}</span></td>
+        <td data-label="Schedule">${escapeHtml((rule.transfer_schedule || "auto").toUpperCase())}${rule.transfer_schedule === "interval" ? ` (${Number(rule.transfer_interval_seconds || 300)}s)` : ""}</td>
+        <td data-label="Enabled">${rule.enabled ? "Yes" : "No"}</td>
+        <td class="cell-actions">
           <button type="button" class="secondary" data-edit-rule="${rule.id}">Edit</button>
           <button type="button" class="secondary" data-delete-rule="${rule.id}">Delete</button>
         </td>
@@ -253,11 +253,11 @@ export function renderTorrents() {
       const pct = Math.round((Number(torrent.percent_done || 0) * 100) * 10) / 10;
       return `
         <tr>
-          <td>${escapeHtml(torrent.name)}</td>
-          <td>${escapeHtml(formatTorrentStatus(torrent.status))}</td>
-          <td>${pct.toFixed(1)}%</td>
-          <td>${labelsHtml}</td>
-          <td>
+          <td data-label="Name" class="cell-title">${escapeHtml(torrent.name)}</td>
+          <td data-label="Status">${escapeHtml(formatTorrentStatus(torrent.status))}</td>
+          <td data-label="Progress">${pct.toFixed(1)}%</td>
+          <td data-label="Labels">${labelsHtml}</td>
+          <td data-label="Assign label" class="cell-assign">
             <input type="text" data-label-input="${torrent.id}" list="knownLabels" placeholder="label" />
             <button type="button" class="secondary" data-assign-label="${torrent.id}">Assign</button>
           </td>
@@ -309,12 +309,12 @@ export function renderOverview() {
 
       return `
         <tr>
-          <td>${escapeHtml(torrent.name)}</td>
-          <td>${pct.toFixed(1)}%</td>
-          <td>${escapeHtml(labels.join(", ") || "-")}</td>
-          <td>${escapeHtml(moveTarget)}</td>
-          <td>${escapeHtml(moveStatus)}</td>
-          <td><button type="button" class="secondary" data-transfer-now="${torrent.id}" ${isComplete ? "" : "disabled"} title="${isComplete ? "Transfer completed torrent now" : "Torrent is still downloading"}">Transfer now</button></td>
+          <td data-label="Name" class="cell-title">${escapeHtml(torrent.name)}</td>
+          <td data-label="Progress"><div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100, pct)}%"></div></div><span class="progress-label">${pct.toFixed(1)}%</span></td>
+          <td data-label="Label">${escapeHtml(labels.join(", ") || "-")}</td>
+          <td data-label="Move to">${escapeHtml(moveTarget)}</td>
+          <td data-label="Status">${escapeHtml(moveStatus)}</td>
+          <td class="cell-actions"><button type="button" class="secondary" data-transfer-now="${torrent.id}" ${isComplete ? "" : "disabled"} title="${isComplete ? "Transfer completed torrent now" : "Torrent is still downloading"}">Transfer now</button></td>
         </tr>
       `;
     })
@@ -368,6 +368,7 @@ export function renderLogs(logs) {
   for (const log of rows) {
     const tr = document.createElement("tr");
 
+    const labels = ["Time (UTC)", "Torrent", "Label", "Destination", "Status", "Detail"];
     const timeTd = document.createElement("td");
     timeTd.textContent = formatUtcDateTime(log.created_at);
     tr.appendChild(timeTd);
@@ -410,6 +411,7 @@ export function renderLogs(logs) {
 
     detailTd.appendChild(wrap);
     tr.appendChild(detailTd);
+    Array.from(tr.children).forEach((td, i) => td.setAttribute("data-label", labels[i]));
     els.logsTable.appendChild(tr);
   }
 }
