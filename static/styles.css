@@ -1185,6 +1185,11 @@ td button {
 }
 
 @media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
   .layout {
     width: calc(100% - 20px);
     margin: 10px auto calc(40px + env(safe-area-inset-bottom));

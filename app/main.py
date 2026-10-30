@@ -64,6 +64,15 @@ def _is_web_auth_enabled() -> bool:
 
 
 @app.middleware("http")
+async def no_cache_ui(request: Request, call_next):
+    """Force revalidation of UI assets so redeployed files reach browsers."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/") or request.url.path in {"/", "/login"}:
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@app.middleware("http")
 async def enforce_session_auth(request: Request, call_next):
     """Enforce session-cookie auth if web auth is configured."""
     path = request.url.path
